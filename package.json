@@ -1,0 +1,26 @@
+{
+  "name": "boos-browser-ext",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wxt",
+    "dev:chrome": "wxt -b chrome",
+    "build": "wxt build",
+    "zip": "wxt zip",
+    "typecheck": "vue-tsc --noEmit"
+  },
+  "dependencies": {
+    "element-plus": "^2.13.7",
+    "vue": "^3.5.33"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.1.40",
+    "@wxt-dev/module-vue": "^1.0.3",
+    "sass": "^1.99.0",
+    "typescript": "^6.0.3",
+    "vue-tsc": "^3.2.7",
+    "wxt": "^0.20.25"
+  },
+  "packageManager": "pnpm@10.10.0"
+}
