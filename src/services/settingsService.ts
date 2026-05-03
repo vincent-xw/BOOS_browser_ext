@@ -1,6 +1,7 @@
 import {
   DEFAULT_SETTINGS,
   type AppSettings,
+  type ExportMode,
   type SettingsValidationResult,
 } from '../types/settings';
 
@@ -141,6 +142,18 @@ export function validateSettings(raw: unknown): SettingsValidationResult {
     );
   } else if (advanced.perCandidateTimeoutMs !== undefined) {
     issues.push('单候选人超时配置非法，已回退默认值。');
+  }
+
+  if (typeof advanced.batchSize === 'number' && Number.isFinite(advanced.batchSize)) {
+    normalized.advanced.batchSize = clamp(Math.floor(advanced.batchSize), 1, 100);
+  } else if (advanced.batchSize !== undefined) {
+    issues.push('批处理条数配置非法，已回退默认值。');
+  }
+
+  if (advanced.exportMode === 'processed' || advanced.exportMode === 'all') {
+    normalized.advanced.exportMode = advanced.exportMode as ExportMode;
+  } else if (advanced.exportMode !== undefined) {
+    issues.push('导出模式配置非法，已回退默认值。');
   }
 
   return {

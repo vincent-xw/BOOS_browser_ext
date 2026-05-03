@@ -1,6 +1,9 @@
 import type {
   CandidateProfile,
   CandidateQuerySelectors,
+  FavoriteRecordStartData,
+  FavoriteNetworkRecording,
+  FavoriteReplayResult,
   CandidateSummary,
   ChromeMcpBridge,
   FavoriteActionData,
@@ -12,6 +15,8 @@ import type {
   ProviderMode,
   ServiceResult,
 } from '../types/page-io';
+
+let lastFavoriteNetworkRecording: FavoriteNetworkRecording | null = null;
 
 const BOSS_FALLBACK_SELECTORS: CandidateQuerySelectors = {
   listItemSelector: 'li.card-item, .card-item',
@@ -424,6 +429,21 @@ export const chromeMcpService = {
     }
 
     return withActiveTab<CandidateSummary[]>(async (tabId) => {
+      // 步骤 1: 从 background 读取最近一次 list 接口 URL，并主动拉取响应数据
+      let latestListUrl = '';
+      try {
+        const messageResp = await chrome.runtime.sendMessage({
+          type: 'BOOS_GET_LAST_GEEK_LIST_URL',
+          tabId,
+        });
+        if (messageResp?.ok && typeof messageResp.url === 'string') {
+          latestListUrl = messageResp.url;
+        } else {
+        }
+      } catch (err) {
+      }
+
+      // 步骤 2: DOM 抓取候选人列表
       const injectionResults = await chrome.scripting.executeScript({
         target: { tabId, allFrames: true },
         args: [effectiveSelectors.listItemSelector, effectiveSelectors.nameSelector],
@@ -461,8 +481,67 @@ export const chromeMcpService = {
       });
 
       const bestResult = pickBestInjectionResult(injectionResults, (data) => data.length);
+      const candidates = bestResult ?? [];
 
-      return bestResult ?? [];
+      // 步骤 3: 等待 API 拦截完成
+
+      // 步骤 4: 读取缓存的 API 数据
+      const apiGeekList = latestListUrl
+        ? (
+            (await chrome.scripting.executeScript({
+              target: { tabId, allFrames: false },
+              world: 'MAIN',
+              args: [latestListUrl],
+              func: async (listUrl: string) => {
+                try {
+                  const resp = await fetch(listUrl, {
+                    method: 'GET',
+                    credentials: 'include',
+                    headers: {
+                      'X-Requested-With': 'XMLHttpRequest',
+                    },
+                  });
+
+                  const json = await resp.json().catch(() => null);
+                  if (!json?.zpData?.geekList || !Array.isArray(json.zpData.geekList)) {
+                    return [];
+                  }
+
+                  const extracted = json.zpData.geekList
+                    .map((geek: any) => {
+                      if (!geek?.geekCard) {
+                        return null;
+                      }
+                      return {
+                        encryptGeekId: geek.geekCard.encryptGeekId,
+                        securityId: geek.geekCard.securityId,
+                        name: geek.geekCard.geekName,
+                      };
+                    })
+                    .filter(Boolean);
+
+                  return extracted;
+                } catch (error) {
+                  return [];
+                }
+              },
+            }))[0]?.result ?? []
+          )
+        : [];
+
+
+      // 步骤 5: 关联数据
+      return candidates.map((candidate, index) => {
+        if (index < apiGeekList.length) {
+          const apiData = apiGeekList[index];
+          return {
+            ...candidate,
+            encGeekId: apiData.encryptGeekId,
+            securityId: apiData.securityId,
+          };
+        }
+        return candidate;
+      });
     });
   },
 
@@ -592,11 +671,12 @@ export const chromeMcpService = {
 
           const resumeContainer = queryFirst(document, resumeContainerSelector) ?? document.body;
           const nameElement = queryFirst(document, nameSelector);
+          const resumeText =
+            resumeContainer?.textContent?.trim().replace(/\s+/g, ' ').slice(0, 12000) || '';
 
           return {
             name: nameElement?.textContent?.trim() || '',
-            resumeText:
-              resumeContainer?.textContent?.trim().replace(/\s+/g, ' ').slice(0, 12000) || '',
+            resumeText,
             sourceUrl: location.href,
             timestamp: new Date().toISOString(),
           };
@@ -649,16 +729,30 @@ export const chromeMcpService = {
     return withActiveTab<FavoriteActionData>(async (tabId) => {
       const injectionResults = await chrome.scripting.executeScript({
         target: { tabId, allFrames: true },
+        world: 'MAIN',
         args: [effectiveSelectors.favoriteButtonSelector],
-        func: (favoriteButtonSelector: string) => {
+        func: async (favoriteButtonSelector: string) => {
           const selectors = favoriteButtonSelector
             .split(',')
             .map((item) => item.trim())
             .filter(Boolean);
 
+          const activeDialog = document.querySelector(
+            '.dialog-wrap.active, .boss-dialog__wrapper.dialog-lib-resume, .lib-resume-recommend',
+          ) as HTMLElement | null;
+
+          const queryInScopes = <T extends Element>(selector: string): T | null => {
+            const inDialog = activeDialog?.querySelector(selector) as T | null;
+            if (inDialog) {
+              return inDialog;
+            }
+
+            return document.querySelector(selector) as T | null;
+          };
+
           let target: HTMLElement | null = null;
           for (const selector of selectors) {
-            const found = document.querySelector(selector) as HTMLElement | null;
+            const found = queryInScopes<HTMLElement>(selector);
             if (found) {
               target = found;
               break;
@@ -670,25 +764,1034 @@ export const chromeMcpService = {
               clicked: false,
               message: '未找到收藏按钮。',
               timestamp: new Date().toISOString(),
+              successSignals: [],
             };
           }
 
+          const beforeState = {
+            text: target.textContent?.trim() ?? '',
+            className: target.className ?? '',
+          };
+
+          const networkEvents: Array<{ method: string; url: string; status: number }> = [];
+          const successSignals: string[] = [];
+
+          const isFavoriteLikeRequest = (url: string) =>
+            /favorite|collect|like|bookmark|geek|candidate|resume/i.test(url);
+
+          const originalFetch = window.fetch;
+          const originalOpen = XMLHttpRequest.prototype.open;
+          const originalSend = XMLHttpRequest.prototype.send;
+
+          window.fetch = async (...args) => {
+            const response = await originalFetch(...args);
+            try {
+              const req = args[0] as RequestInfo | URL;
+              const init = (args[1] as RequestInit | undefined) ?? undefined;
+              const url =
+                typeof req === 'string'
+                  ? req
+                  : req instanceof Request
+                    ? req.url
+                    : String(req);
+              const method = (init?.method || (req instanceof Request ? req.method : 'GET')).toUpperCase();
+
+              if (isFavoriteLikeRequest(url)) {
+                networkEvents.push({ method, url, status: response.status });
+                if (response.ok) {
+                  successSignals.push(`检测到收藏相关 fetch 成功：${response.status}`);
+                }
+              }
+            } catch {
+              // ignore
+            }
+
+            return response;
+          };
+
+          XMLHttpRequest.prototype.open = function (
+            method: string,
+            url: string | URL,
+            ...rest: unknown[]
+          ) {
+            (this as XMLHttpRequest & { __boosMethod?: string; __boosUrl?: string }).__boosMethod =
+              method;
+            (this as XMLHttpRequest & { __boosMethod?: string; __boosUrl?: string }).__boosUrl =
+              String(url);
+            return (originalOpen as unknown as (...args: unknown[]) => unknown).apply(this, [
+              method,
+              url,
+              ...rest,
+            ]);
+          };
+
+          XMLHttpRequest.prototype.send = function (...args: unknown[]) {
+            const xhr = this as XMLHttpRequest & { __boosMethod?: string; __boosUrl?: string };
+            const onLoadEnd = () => {
+              const url = xhr.__boosUrl ?? '';
+              if (isFavoriteLikeRequest(url)) {
+                const method = (xhr.__boosMethod || 'GET').toUpperCase();
+                networkEvents.push({ method, url, status: xhr.status });
+                if (xhr.status >= 200 && xhr.status < 300) {
+                  successSignals.push(`检测到收藏相关 XHR 成功：${xhr.status}`);
+                }
+              }
+            };
+
+            xhr.addEventListener('loadend', onLoadEnd, { once: true });
+            return originalSend.apply(xhr, args as [Document | XMLHttpRequestBodyInit | null | undefined]);
+          };
+
+          const dispatchClickChain = (element: HTMLElement) => {
+            const events: Array<[string, MouseEventInit]> = [
+              ['pointerdown', { bubbles: true, cancelable: true, composed: true }],
+              ['mousedown', { bubbles: true, cancelable: true, composed: true, button: 0 }],
+              ['mouseup', { bubbles: true, cancelable: true, composed: true, button: 0 }],
+              ['click', { bubbles: true, cancelable: true, composed: true, button: 0 }],
+            ];
+
+            for (const [eventName, eventInit] of events) {
+              element.dispatchEvent(new MouseEvent(eventName, eventInit));
+            }
+          };
+
           target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          target.click();
+
+          try {
+            target.focus?.();
+            dispatchClickChain(target);
+            target.click();
+
+            await new Promise((resolve) => window.setTimeout(resolve, 1400));
+          } finally {
+            window.fetch = originalFetch;
+            XMLHttpRequest.prototype.open = originalOpen;
+            XMLHttpRequest.prototype.send = originalSend;
+          }
+
+          const afterState = {
+            text: target.textContent?.trim() ?? '',
+            className: target.className ?? '',
+          };
+
+          if (beforeState.text !== afterState.text) {
+            successSignals.push(`按钮文本变化：${beforeState.text || '(空)'} -> ${afterState.text || '(空)'}`);
+          }
+
+          if (beforeState.className !== afterState.className) {
+            successSignals.push('按钮样式状态发生变化');
+          }
+
+          const dialogText = activeDialog?.textContent?.replace(/\s+/g, ' ').slice(0, 800) ?? '';
+          if (/已收藏|取消收藏|已关注|已处理|收藏成功/.test(dialogText)) {
+            successSignals.push('检测到页面成功文案信号');
+          }
+
+          const clicked = successSignals.length > 0;
 
           return {
-            clicked: true,
-            message: '已触发收藏按钮点击。',
+            clicked,
+            message: clicked
+              ? '已完成收藏动作分析并检测到成功信号。'
+              : '已触发点击，但暂未检测到明确成功信号。',
             timestamp: new Date().toISOString(),
+            successSignals,
+            networkEvents,
+            beforeState,
+            afterState,
           };
         },
       });
 
       const bestResult = pickBestInjectionResult(injectionResults, (data) =>
-        data.clicked ? 1 : 0,
+        (data.clicked ? 100 : 0) + (data.successSignals?.length ?? 0),
       );
 
       return (bestResult ?? injectionResults[0]?.result) as FavoriteActionData;
     });
+  },
+
+  async startFavoriteNetworkRecording(
+    endpointKeyword: string,
+  ): Promise<ServiceResult<FavoriteRecordStartData>> {
+    const bridge = getWindowBridge();
+    if (bridge?.startFavoriteNetworkRecording) {
+      try {
+        const result = await bridge.startFavoriteNetworkRecording(endpointKeyword);
+        return normalizeResult(result, 'chrome-mcp', 'live');
+      } catch (error) {
+        return buildError(
+          {
+            code: 'EXECUTION_FAILED',
+            message: 'Chrome MCP 启动网络录制失败。',
+            details: error instanceof Error ? error.message : String(error),
+          },
+          'chrome-mcp',
+          'live',
+        );
+      }
+    }
+
+    if (!chrome?.scripting?.executeScript) {
+      return buildError(
+        {
+          code: 'MCP_UNAVAILABLE',
+          message: '当前环境不支持网络录制能力。',
+        },
+        'unavailable',
+        'fallback',
+      );
+    }
+
+    return withActiveTab<FavoriteRecordStartData>(async (tabId) => {
+      const injectionResults = await chrome.scripting.executeScript({
+        target: { tabId, allFrames: true },
+        world: 'MAIN',
+        args: [endpointKeyword],
+        func: (keyword: string) => {
+          const g = window as unknown as Record<string, unknown>;
+          const recorderKey = '__boosFavoriteRecorder';
+          const now = new Date().toISOString();
+
+          if (g[recorderKey] && typeof g[recorderKey] === 'object') {
+            const existing = g[recorderKey] as Record<string, unknown>;
+            if (existing.active) {
+              return {
+                started: false,
+                message: `网络录制已在运行中（frame: ${location.href}）。`,
+                frameUrl: location.href,
+              };
+            }
+          }
+
+          const recorder = {
+            active: true,
+            endpointKeyword: keyword,
+            startedAt: now,
+            frameUrl: location.href,
+            events: [] as Array<{
+              method: string;
+              url: string;
+              status: number;
+              frameUrl: string;
+              isTopFrame?: boolean;
+              timestamp: string;
+              requestBody?: string;
+              requestHeaders?: Record<string, string>;
+              keywordMatched?: boolean;
+            }>,
+            originalFetch: window.fetch,
+            originalXhrOpen: XMLHttpRequest.prototype.open,
+            originalXhrSend: XMLHttpRequest.prototype.send,
+            originalXhrSetRequestHeader: XMLHttpRequest.prototype.setRequestHeader,
+            originalBeacon: Navigator.prototype.sendBeacon,
+          };
+
+          const matchKeyword = (url: string) =>
+            !keyword.trim() || url.toLowerCase().includes(keyword.toLowerCase());
+
+          const normalizeBody = (value: unknown): string => {
+            if (typeof value === 'string') {
+              return value.slice(0, 2000);
+            }
+
+            if (value instanceof URLSearchParams) {
+              return value.toString().slice(0, 2000);
+            }
+
+            if (value instanceof FormData) {
+              const pairs: string[] = [];
+              value.forEach((v, k) => {
+                pairs.push(`${k}=${typeof v === 'string' ? v : '[blob]'}`);
+              });
+              return pairs.join('&').slice(0, 2000);
+            }
+
+            if (value instanceof Blob) {
+              return `[blob:${value.type || 'unknown'}:${value.size}]`;
+            }
+
+            if (typeof value === 'object' && value !== null) {
+              try {
+                return JSON.stringify(value).slice(0, 2000);
+              } catch {
+                return '[object]';
+              }
+            }
+
+            return '';
+          };
+
+          const normalizeHeaders = (
+            headersInput: HeadersInit | undefined,
+          ): Record<string, string> => {
+            const result: Record<string, string> = {};
+            if (!headersInput) {
+              return result;
+            }
+
+            if (headersInput instanceof Headers) {
+              headersInput.forEach((value, key) => {
+                result[key] = value;
+              });
+              return result;
+            }
+
+            if (Array.isArray(headersInput)) {
+              for (const [key, value] of headersInput) {
+                result[String(key)] = String(value);
+              }
+              return result;
+            }
+
+            for (const [key, value] of Object.entries(headersInput)) {
+              result[key] = String(value);
+            }
+            return result;
+          };
+
+          window.fetch = async (...args) => {
+            const req = args[0] as RequestInfo | URL;
+            const init = (args[1] as RequestInit | undefined) ?? undefined;
+            const url =
+              typeof req === 'string'
+                ? req
+                : req instanceof Request
+                  ? req.url
+                  : String(req);
+            const method = (init?.method || (req instanceof Request ? req.method : 'GET')).toUpperCase();
+
+            let requestBody = '';
+            let requestHeaders: Record<string, string> = {};
+            try {
+              if (typeof init?.body !== 'undefined') {
+                requestBody = normalizeBody(init.body);
+              } else if (req instanceof Request) {
+                const cloned = req.clone();
+                requestBody = (await cloned.text()).slice(0, 2000);
+              }
+
+              if (init?.headers) {
+                requestHeaders = normalizeHeaders(init.headers);
+              } else if (req instanceof Request) {
+                requestHeaders = normalizeHeaders(req.headers);
+              }
+            } catch {
+              requestBody = '';
+              requestHeaders = {};
+            }
+
+            const response = await recorder.originalFetch(...args);
+
+            recorder.events.push({
+              method,
+              url,
+              status: response.status,
+              frameUrl: location.href,
+              isTopFrame: window.top === window,
+              timestamp: new Date().toISOString(),
+              requestBody: requestBody || undefined,
+              requestHeaders: Object.keys(requestHeaders).length ? requestHeaders : undefined,
+              keywordMatched: matchKeyword(url),
+            });
+
+            return response;
+          };
+
+          XMLHttpRequest.prototype.open = function (
+            method: string,
+            url: string | URL,
+            ...rest: unknown[]
+          ) {
+            const xhr = this as XMLHttpRequest & {
+              __boosMethod?: string;
+              __boosUrl?: string;
+              __boosBody?: string;
+              __boosHeaders?: Record<string, string>;
+            };
+            xhr.__boosMethod = method;
+            xhr.__boosUrl = String(url);
+            xhr.__boosHeaders = {};
+
+            return (recorder.originalXhrOpen as unknown as (...args: unknown[]) => unknown).apply(this, [
+              method,
+              url,
+              ...rest,
+            ]);
+          };
+
+          XMLHttpRequest.prototype.setRequestHeader = function (name: string, value: string) {
+            const xhr = this as XMLHttpRequest & {
+              __boosHeaders?: Record<string, string>;
+            };
+            if (!xhr.__boosHeaders) {
+              xhr.__boosHeaders = {};
+            }
+            xhr.__boosHeaders[name] = value;
+            return recorder.originalXhrSetRequestHeader.call(this, name, value);
+          };
+
+          XMLHttpRequest.prototype.send = function (...args: unknown[]) {
+            const xhr = this as XMLHttpRequest & {
+              __boosMethod?: string;
+              __boosUrl?: string;
+              __boosBody?: string;
+              __boosHeaders?: Record<string, string>;
+            };
+            xhr.__boosBody = normalizeBody(args[0]);
+
+            xhr.addEventListener(
+              'loadend',
+              () => {
+                const url = xhr.__boosUrl ?? '';
+                recorder.events.push({
+                  method: (xhr.__boosMethod || 'GET').toUpperCase(),
+                  url,
+                  status: xhr.status,
+                  frameUrl: location.href,
+                  isTopFrame: window.top === window,
+                  timestamp: new Date().toISOString(),
+                  requestBody: xhr.__boosBody || undefined,
+                  requestHeaders:
+                    xhr.__boosHeaders && Object.keys(xhr.__boosHeaders).length
+                      ? xhr.__boosHeaders
+                      : undefined,
+                  keywordMatched: matchKeyword(url),
+                });
+              },
+              { once: true },
+            );
+
+            return recorder.originalXhrSend.apply(this, args as [Document | XMLHttpRequestBodyInit | null | undefined]);
+          };
+
+          try {
+            Navigator.prototype.sendBeacon = function (url: string | URL, data?: BodyInit | null) {
+              const beaconUrl = String(url);
+              recorder.events.push({
+                method: 'BEACON',
+                url: beaconUrl,
+                status: 0,
+                frameUrl: location.href,
+                isTopFrame: window.top === window,
+                timestamp: new Date().toISOString(),
+                requestBody: normalizeBody(data),
+                keywordMatched: matchKeyword(beaconUrl),
+              });
+
+              return recorder.originalBeacon.call(this, url, data);
+            };
+          } catch {
+            // 某些页面环境下 sendBeacon 不可重写，忽略即可。
+          }
+
+          g[recorderKey] = recorder;
+
+          return {
+            started: true,
+            message: `已开始网络录制（frame: ${location.href}）。`,
+            frameUrl: location.href,
+          };
+        },
+      });
+
+      const frameSummaries = injectionResults.map((item) => ({
+        frameUrl: item.result?.frameUrl || `frame#${item.frameId}`,
+        started: Boolean(item.result?.started),
+        eventsCaptured: 0,
+        note: item.result?.message,
+      }));
+      const startedFrameCount = frameSummaries.filter((item) => item.started).length;
+      const injectedFrameCount = frameSummaries.length;
+
+      const bestResult = pickBestInjectionResult(injectionResults, (data) => (data.started ? 2 : 1));
+
+      if (!injectedFrameCount) {
+        return {
+          started: false,
+          message: '未注入到任何 frame，可能是页面权限或沙箱 iframe 限制。',
+          injectedFrameCount,
+          startedFrameCount,
+          frameSummaries,
+        };
+      }
+
+      return {
+        started: startedFrameCount > 0,
+        message:
+          bestResult?.message ||
+          `录制器未成功启动（已注入 ${injectedFrameCount} 个 frame，成功启动 0 个）。`,
+        injectedFrameCount,
+        startedFrameCount,
+        frameSummaries,
+      };
+    });
+  },
+
+  async stopFavoriteNetworkRecording(
+    endpointKeyword: string,
+  ): Promise<ServiceResult<FavoriteNetworkRecording>> {
+    const bridge = getWindowBridge();
+    if (bridge?.stopFavoriteNetworkRecording) {
+      try {
+        const result = await bridge.stopFavoriteNetworkRecording(endpointKeyword);
+        return normalizeResult(result, 'chrome-mcp', 'live');
+      } catch (error) {
+        return buildError(
+          {
+            code: 'EXECUTION_FAILED',
+            message: 'Chrome MCP 停止网络录制失败。',
+            details: error instanceof Error ? error.message : String(error),
+          },
+          'chrome-mcp',
+          'live',
+        );
+      }
+    }
+
+    if (!chrome?.scripting?.executeScript) {
+      return buildError(
+        {
+          code: 'MCP_UNAVAILABLE',
+          message: '当前环境不支持网络录制能力。',
+        },
+        'unavailable',
+        'fallback',
+      );
+    }
+
+    return withActiveTab<FavoriteNetworkRecording>(async (tabId) => {
+      const stoppedAt = new Date().toISOString();
+      const injectionResults = await chrome.scripting.executeScript({
+        target: { tabId, allFrames: true },
+        world: 'MAIN',
+        func: () => {
+          const g = window as unknown as Record<string, unknown>;
+          const recorderKey = '__boosFavoriteRecorder';
+          const recorder = g[recorderKey] as
+            | {
+                active: boolean;
+                startedAt: string;
+                endpointKeyword: string;
+                events: Array<{
+                  method: string;
+                  url: string;
+                  status: number;
+                  frameUrl: string;
+                  isTopFrame?: boolean;
+                  timestamp: string;
+                  requestBody?: string;
+                  requestHeaders?: Record<string, string>;
+                  keywordMatched?: boolean;
+                }>;
+                originalFetch: typeof window.fetch;
+                originalXhrOpen: typeof XMLHttpRequest.prototype.open;
+                originalXhrSend: typeof XMLHttpRequest.prototype.send;
+                originalXhrSetRequestHeader: typeof XMLHttpRequest.prototype.setRequestHeader;
+                originalBeacon: typeof Navigator.prototype.sendBeacon;
+              }
+            | undefined;
+
+          if (!recorder || !recorder.active) {
+            return {
+              frameUrl: location.href,
+              startedAt: '',
+              endpointKeyword: '',
+              events: [] as Array<{
+                method: string;
+                url: string;
+                status: number;
+                frameUrl: string;
+                isTopFrame?: boolean;
+                timestamp: string;
+                requestBody?: string;
+                requestHeaders?: Record<string, string>;
+                keywordMatched?: boolean;
+              }>,
+            };
+          }
+
+          window.fetch = recorder.originalFetch;
+          XMLHttpRequest.prototype.open = recorder.originalXhrOpen;
+          XMLHttpRequest.prototype.send = recorder.originalXhrSend;
+          XMLHttpRequest.prototype.setRequestHeader = recorder.originalXhrSetRequestHeader;
+          try {
+            Navigator.prototype.sendBeacon = recorder.originalBeacon;
+          } catch {
+            // ignore
+          }
+
+          recorder.active = false;
+          const payload = {
+            frameUrl: location.href,
+            startedAt: recorder.startedAt,
+            endpointKeyword: recorder.endpointKeyword,
+            events: recorder.events,
+          };
+
+          delete g[recorderKey];
+          return payload;
+        },
+      });
+
+      const frameSummaries = injectionResults.map((item) => ({
+        frameUrl: item.result?.frameUrl || `frame#${item.frameId}`,
+        eventsCaptured: item.result?.events?.length ?? 0,
+        note: item.result?.events?.length
+          ? `捕获 ${item.result.events.length} 条请求`
+          : '未捕获请求',
+      }));
+
+      const mergedEvents = injectionResults
+        .map((item) => item.result)
+        .flatMap((item) => item?.events ?? [])
+        .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+      const startedAt =
+        injectionResults.find((item) => item.result?.startedAt)?.result?.startedAt || stoppedAt;
+      const keywordFromRecorder =
+        injectionResults.find((item) => item.result?.endpointKeyword)?.result?.endpointKeyword ||
+        endpointKeyword;
+
+      const recording: FavoriteNetworkRecording = {
+        startedAt,
+        stoppedAt,
+        endpointKeyword: keywordFromRecorder,
+        events: mergedEvents,
+        frameSummaries,
+      };
+
+      lastFavoriteNetworkRecording = recording;
+      return recording;
+    });
+  },
+
+  async replayFavoriteNetworkRequests(payload: {
+    endpointKeyword: string;
+    mode: 'favorite' | 'unfavorite';
+  }): Promise<ServiceResult<FavoriteReplayResult>> {
+    const bridge = getWindowBridge();
+    if (bridge?.replayFavoriteNetworkRequests) {
+      try {
+        const result = await bridge.replayFavoriteNetworkRequests(payload);
+        return normalizeResult(result, 'chrome-mcp', 'live');
+      } catch (error) {
+        return buildError(
+          {
+            code: 'EXECUTION_FAILED',
+            message: 'Chrome MCP 回放网络请求失败。',
+            details: error instanceof Error ? error.message : String(error),
+          },
+          'chrome-mcp',
+          'live',
+        );
+      }
+    }
+
+    if (!chrome?.scripting?.executeScript) {
+      return buildError(
+        {
+          code: 'MCP_UNAVAILABLE',
+          message: '当前环境不支持请求回放能力。',
+        },
+        'unavailable',
+        'fallback',
+      );
+    }
+
+    if (!lastFavoriteNetworkRecording?.events.length) {
+      return buildError(
+        {
+          code: 'INVALID_INPUT',
+          message: '未找到可回放的录制请求，请先完成一次录制。',
+        },
+        'tabs-scripting-fallback',
+        'fallback',
+      );
+    }
+
+    const keyword = payload.endpointKeyword.trim().toLowerCase();
+    const modeKeywordReg =
+      payload.mode === 'favorite'
+        ? /(favorite|collect|like|bookmark|add|save|usermark\/add)/i
+        : /(cancel|unfavorite|dislike|uncollect|remove|delete|del|usermark\/(delete|del))/i;
+
+    const matchedEvents = lastFavoriteNetworkRecording.events.filter((event) => {
+      const urlBody = `${event.url} ${event.requestBody || ''}`;
+      const passKeyword = keyword ? urlBody.toLowerCase().includes(keyword) : true;
+      return passKeyword && modeKeywordReg.test(urlBody);
+    });
+
+    const candidates = matchedEvents.length
+      ? matchedEvents
+      : lastFavoriteNetworkRecording.events.filter((event) =>
+          keyword ? `${event.url} ${event.requestBody || ''}`.toLowerCase().includes(keyword) : true,
+        );
+
+    if (!candidates.length) {
+      return buildError(
+        {
+          code: 'INVALID_INPUT',
+          message: '没有匹配到可回放请求，请检查接口关键字或先重新录制。',
+        },
+        'tabs-scripting-fallback',
+        'fallback',
+      );
+    }
+
+    const picked = payload.mode === 'favorite' ? candidates[0] : candidates[candidates.length - 1];
+
+    return withActiveTab<FavoriteReplayResult>(async (tabId) => {
+      const injectionResults = await chrome.scripting.executeScript({
+        target: { tabId, allFrames: true },
+        world: 'MAIN',
+        args: [picked],
+        func: async (event) => {
+          if (!event || !event.url) {
+            return {
+              ok: false,
+              message: '无效的回放事件。',
+              replayedCount: 0,
+              responses: [] as Array<{ method: string; url: string; status: number }>,
+            };
+          }
+
+          if (location.href !== event.frameUrl) {
+            return {
+              ok: false,
+              message: `跳过 frame：${location.href}`,
+              replayedCount: 0,
+              responses: [] as Array<{ method: string; url: string; status: number }>,
+            };
+          }
+
+          const method = (event.method || 'POST').toUpperCase();
+          const sanitizeHeaders = (raw: Record<string, string> | undefined) => {
+            const blocked = [
+              /^host$/i,
+              /^cookie$/i,
+              /^content-length$/i,
+              /^sec-/i,
+              /^origin$/i,
+              /^referer$/i,
+              /^priority$/i,
+              /^accept-encoding$/i,
+              /^connection$/i,
+              /^user-agent$/i,
+            ];
+
+            const allowed = new Set(['content-type', 'x-requested-with', 'zp_token', 'accept']);
+            const out: Record<string, string> = {};
+            for (const [key, value] of Object.entries(raw || {})) {
+              const lower = key.toLowerCase();
+              if (blocked.some((rule) => rule.test(lower))) {
+                continue;
+              }
+              if (allowed.has(lower) || lower.startsWith('x-')) {
+                out[key] = String(value);
+              }
+            }
+            return out;
+          };
+
+          const headers: Record<string, string> = sanitizeHeaders(event.requestHeaders);
+
+          let body: string | undefined;
+          if (typeof event.requestBody === 'string' && event.requestBody.trim()) {
+            body = event.requestBody;
+            if (!headers['Content-Type'] && !headers['content-type'] && event.requestBody.includes('=')) {
+              headers['Content-Type'] = 'application/x-www-form-urlencoded;charset=UTF-8';
+            }
+            if (!headers['Content-Type'] && !headers['content-type'] && event.requestBody.trim().startsWith('{')) {
+              headers['Content-Type'] = 'application/json;charset=UTF-8';
+            }
+          } else if (!headers['Content-Type'] && !headers['content-type']) {
+            headers['Content-Type'] = 'application/x-www-form-urlencoded;charset=UTF-8';
+          }
+
+          const response = await fetch(event.url, {
+            method,
+            headers,
+            body: method === 'GET' || method === 'HEAD' ? undefined : body,
+            credentials: 'include',
+          });
+
+          return {
+            ok: response.ok,
+            message: response.ok ? '回放成功。' : `回放失败（HTTP ${response.status}）`,
+            replayedCount: 1,
+            responses: [
+              {
+                method,
+                url: event.url,
+                status: response.status,
+              },
+            ],
+          };
+        },
+      });
+
+      const best = pickBestInjectionResult(injectionResults, (data) => (data.replayedCount > 0 ? 2 : 1));
+      return (
+        best ?? {
+          ok: false,
+          message: '未在目标 frame 执行到回放。',
+          replayedCount: 0,
+          responses: [],
+        }
+      );
+    });
+  },
+
+  async highlightCandidates(
+    items: Array<{ index: number; shouldFavorite: boolean; reason: string }>,
+    listItemSelector: string,
+  ): Promise<{
+    totalFrames: number;
+    matchedFrames: number;
+    maxFoundInFrame: number;
+    details: Array<{ frameId?: number; totalFound: number; recommendedApplied: number; skippedApplied: number }>;
+  }> {
+    if (!chrome?.scripting?.executeScript) {
+      return {
+        totalFrames: 0,
+        matchedFrames: 0,
+        maxFoundInFrame: 0,
+        details: [],
+      };
+    }
+    if (!items.length) {
+      return {
+        totalFrames: 0,
+        matchedFrames: 0,
+        maxFoundInFrame: 0,
+        details: [],
+      };
+    }
+
+    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    if (!tab?.id) {
+      return {
+        totalFrames: 0,
+        matchedFrames: 0,
+        maxFoundInFrame: 0,
+        details: [],
+      };
+    }
+
+    const effectiveSelector = withBossFallbackSelectors({
+      listItemSelector,
+      nameSelector: '.name',
+      resumeContainerSelector: '',
+      favoriteButtonSelector: '',
+    }).listItemSelector;
+
+    const injectionResults = await chrome.scripting.executeScript({
+      target: { tabId: tab.id, allFrames: true },
+      args: [items, effectiveSelector],
+      func: (
+        highlightItems: Array<{ index: number; shouldFavorite: boolean; reason: string }>,
+        selector: string,
+      ) => {
+        const STYLE_ID = 'boos-ext-highlight-style';
+        const TOOLTIP_ID = 'boos-ext-tooltip';
+
+        // --- Style (refresh on every inject to avoid stale old rules) ---
+        const styleEl =
+          (document.getElementById(STYLE_ID) as HTMLStyleElement | null) ??
+          (() => {
+            const s = document.createElement('style');
+            s.id = STYLE_ID;
+            document.head.appendChild(s);
+            return s;
+          })();
+
+        styleEl.textContent = [
+          '@keyframes boos-ai-pulse-ring {',
+          '  0% {',
+          '    transform: scale(0.985);',
+          '    opacity: 0.78;',
+          '    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.48);',
+          '  }',
+          '  65% {',
+          '    transform: scale(1.005);',
+          '    opacity: 0.22;',
+          '    box-shadow: 0 0 0 10px rgba(34, 197, 94, 0.0);',
+          '  }',
+          '  100% {',
+          '    transform: scale(1.01);',
+          '    opacity: 0;',
+          '    box-shadow: 0 0 0 14px rgba(34, 197, 94, 0.0);',
+          '  }',
+          '}',
+          '.boos-ext-recommended {',
+          '  position: relative !important;',
+          '}',
+          '.boos-ext-recommended::after {',
+          '  content: "AI推荐";',
+          '  position: absolute;',
+          '  top: 6px;',
+          '  right: 8px;',
+          '  z-index: 12;',
+          '  font-size: 11px;',
+          '  color: #052e16;',
+          '  background: #86efac;',
+          '  border: 1px solid #22c55e;',
+          '  border-radius: 999px;',
+          '  padding: 0 6px;',
+          '}',
+          '.boos-ext-focus-node.boos-ext-recommended-inner {',
+          '  position: relative !important;',
+          '  border: 2px solid #16a34a !important;',
+          '  border-radius: 10px !important;',
+          '  background: rgba(34, 197, 94, 0.12) !important;',
+          '  box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.16) !important;',
+          '}',
+          '.boos-ext-focus-node.boos-ext-recommended-inner::before {',
+          '  content: "";',
+          '  position: absolute;',
+          '  inset: -2px;',
+          '  border-radius: 12px;',
+          '  pointer-events: none;',
+          '  border: 2px solid rgba(34, 197, 94, 0.75);',
+          '  animation: boos-ai-pulse-ring 1.8s ease-out infinite !important;',
+          '}',
+          '.boos-ext-not-recommended {',
+          '  opacity: 0.82 !important;',
+          '}',
+          '.boos-ext-not-recommended .candidate-card-wrap,',
+          '.boos-ext-not-recommended .card-inner {',
+          '  filter: grayscale(0.12);',
+          '}',
+        ].join('\n');
+
+        // --- Tooltip (create once, fully inline-styled) ---
+        let tip = document.getElementById(TOOLTIP_ID) as HTMLElement | null;
+        if (!tip) {
+          tip = document.createElement('div');
+          tip.id = TOOLTIP_ID;
+          tip.style.cssText = [
+            'position:fixed',
+            'z-index:2147483647',
+            'max-width:260px',
+            'padding:8px 12px',
+            'background:#1e293b',
+            'color:#f8fafc',
+            'font-size:13px',
+            'line-height:1.6',
+            'border-radius:8px',
+            'box-shadow:0 4px 20px rgba(0,0,0,0.35)',
+            'pointer-events:none',
+            'white-space:pre-wrap',
+            'word-break:break-all',
+            'opacity:0',
+            'transition:opacity 0.15s',
+            'left:-9999px',
+            'top:-9999px',
+          ].join(';');
+          document.body.appendChild(tip);
+        }
+        const tipEl = tip;
+
+        // --- Build index map ---
+        const itemMap = new Map(
+          highlightItems.map((item) => [item.index, item]),
+        );
+
+        // --- Core apply function ---
+        // querySelectorAll with a combined selector returns unique elements in DOM order,
+        // matching the same index-based order used when reading the candidate list.
+        function applyHighlights() {
+          const allItems = Array.from(
+            document.querySelectorAll(selector),
+          ) as HTMLElement[];
+
+          let recommendedApplied = 0;
+          let skippedApplied = 0;
+
+          allItems.forEach((el, idx) => {
+            // Always reset first so stale classes don't accumulate
+            el.classList.remove('boos-ext-recommended', 'boos-ext-not-recommended');
+            delete el.dataset.boosHighlight;
+            delete el.dataset.boosReason;
+            const oldFocusNode = el.querySelector('.boos-ext-focus-node.boos-ext-recommended-inner');
+            if (oldFocusNode) {
+              oldFocusNode.classList.remove('boos-ext-focus-node', 'boos-ext-recommended-inner');
+            }
+            const data = itemMap.get(idx);
+            if (!data) return;
+
+            const focusNode =
+              (el.querySelector('.candidate-card-wrap') as HTMLElement | null) ??
+              (el.querySelector('.card-inner') as HTMLElement | null) ??
+              el;
+
+            if (data.shouldFavorite) {
+              el.classList.add('boos-ext-recommended');
+              el.dataset.boosHighlight = 'recommended';
+              el.dataset.boosReason = data.reason;
+              focusNode.classList.add('boos-ext-focus-node', 'boos-ext-recommended-inner');
+              recommendedApplied += 1;
+              // Bind listeners only once — no cloneNode (would detach Vue vnode)
+              if (!el.dataset.boosEventsBound) {
+                el.dataset.boosEventsBound = '1';
+                const reason = data.reason;
+                el.addEventListener('mouseenter', function (e) {
+                  tipEl.textContent = '\uD83E\uDD16 ' + reason;
+                  tipEl.style.opacity = '1';
+                  tipEl.style.left =
+                    Math.min((e as MouseEvent).clientX + 16, window.innerWidth - 280) + 'px';
+                  tipEl.style.top =
+                    Math.min((e as MouseEvent).clientY + 16, window.innerHeight - 80) + 'px';
+                });
+                el.addEventListener('mousemove', function (e) {
+                  tipEl.style.left =
+                    Math.min((e as MouseEvent).clientX + 16, window.innerWidth - 280) + 'px';
+                  tipEl.style.top =
+                    Math.min((e as MouseEvent).clientY + 16, window.innerHeight - 80) + 'px';
+                });
+                el.addEventListener('mouseleave', function () {
+                  tipEl.style.opacity = '0';
+                });
+              }
+            } else {
+              el.classList.add('boos-ext-not-recommended');
+              el.dataset.boosHighlight = 'skipped';
+              el.dataset.boosReason = data.reason;
+              skippedApplied += 1;
+            }
+          });
+
+          return {
+            totalFound: allItems.length,
+            recommendedApplied,
+            skippedApplied,
+          };
+        }
+
+        // Apply immediately, then retry after short delays to survive Vue re-renders
+        const firstPass = applyHighlights();
+        window.setTimeout(applyHighlights, 300);
+        window.setTimeout(applyHighlights, 1000);
+
+        return firstPass;
+      },
+    });
+
+    const details = injectionResults.map((item) => ({
+      frameId: item.frameId,
+      totalFound: item.result?.totalFound ?? 0,
+      recommendedApplied: item.result?.recommendedApplied ?? 0,
+      skippedApplied: item.result?.skippedApplied ?? 0,
+    }));
+    const matchedFrames = details.filter((d) => d.totalFound > 0).length;
+    const maxFoundInFrame = details.reduce((max, d) => Math.max(max, d.totalFound), 0);
+
+    return {
+      totalFrames: details.length,
+      matchedFrames,
+      maxFoundInFrame,
+      details,
+    };
   },
 };

@@ -7,12 +7,16 @@ export interface BasicSettings {
   favoriteButtonSelector: string;
 }
 
+export type ExportMode = 'processed' | 'all';
+
 export interface AdvancedSettings {
   llmApiEndpoint: string;
   llmApiKey: string;
   llmModel: string;
   llmRequestTimeoutMs: number;
   perCandidateTimeoutMs: number;
+  batchSize: number;
+  exportMode: ExportMode;
 }
 
 export interface AppSettings {
@@ -43,5 +47,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     llmModel: 'gpt-4o-mini',
     llmRequestTimeoutMs: 30000,
     perCandidateTimeoutMs: 45000,
+    batchSize: 10,
+    exportMode: 'processed' as ExportMode,
   },
 };

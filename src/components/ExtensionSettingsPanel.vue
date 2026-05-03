@@ -120,6 +120,24 @@ function onSave() {
               controls-position="right"
             />
           </el-form-item>
+          <el-form-item label="导出模式">
+            <el-select v-model="form.advanced.exportMode" style="width: 100%">
+              <el-option label="仅导出 LLM 已处理候选人（默认）" value="processed" />
+              <el-option label="导出全部候选人（包括未处理）" value="all" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="单批处理条数">
+            <el-input-number
+              v-model="form.advanced.batchSize"
+              :min="1"
+              :max="100"
+              :step="1"
+              controls-position="right"
+            />
+            <el-text type="info" size="small" style="margin-top: 4px; display: block;">
+              「开始自动处理」每批向 LLM 提交的候选人数量，默认 10
+            </el-text>
+          </el-form-item>
         </el-form>
       </el-card>
 

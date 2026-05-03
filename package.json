@@ -12,7 +12,8 @@
   },
   "dependencies": {
     "element-plus": "^2.13.7",
-    "vue": "^3.5.33"
+    "vue": "^3.5.33",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/chrome": "^0.1.40",

@@ -43,6 +43,8 @@ export interface CandidateSummary {
   index: number;
   name: string;
   previewText: string;
+  encGeekId?: string;
+  securityId?: string;
 }
 
 export interface PageCandidateOverview {
@@ -66,6 +68,66 @@ export interface FavoriteActionData {
   clicked: boolean;
   message: string;
   timestamp: string;
+  successSignals?: string[];
+  networkEvents?: Array<{
+    method: string;
+    url: string;
+    status: number;
+  }>;
+  beforeState?: {
+    text: string;
+    className: string;
+  };
+  afterState?: {
+    text: string;
+    className: string;
+  };
+}
+
+export interface FavoriteNetworkEvent {
+  method: string;
+  url: string;
+  status: number;
+  frameUrl: string;
+  isTopFrame?: boolean;
+  timestamp: string;
+  requestBody?: string;
+  requestHeaders?: Record<string, string>;
+  keywordMatched?: boolean;
+}
+
+export interface FavoriteRecordFrameSummary {
+  frameUrl: string;
+  started?: boolean;
+  eventsCaptured: number;
+  note?: string;
+}
+
+export interface FavoriteRecordStartData {
+  started: boolean;
+  message: string;
+  injectedFrameCount: number;
+  startedFrameCount: number;
+  frameSummaries: FavoriteRecordFrameSummary[];
+}
+
+export interface FavoriteNetworkRecording {
+  startedAt: string;
+  stoppedAt: string;
+  endpointKeyword: string;
+  events: FavoriteNetworkEvent[];
+  frameSummaries?: FavoriteRecordFrameSummary[];
+}
+
+export interface FavoriteReplayResult {
+  ok: boolean;
+  message: string;
+  replayedCount: number;
+  responses: Array<{
+    method: string;
+    url: string;
+    status: number;
+  }>;
 }
 
 export interface LlmAssessmentInput {
@@ -128,6 +190,19 @@ export interface ChromeMcpBridge {
   clickFavoriteButton?: (
     selectors: CandidateQuerySelectors,
   ) => Promise<ServiceResult<FavoriteActionData> | FavoriteActionData>;
+  startFavoriteNetworkRecording?: (
+    endpointKeyword: string,
+  ) => Promise<
+    | ServiceResult<FavoriteRecordStartData>
+    | FavoriteRecordStartData
+  >;
+  stopFavoriteNetworkRecording?: (
+    endpointKeyword: string,
+  ) => Promise<ServiceResult<FavoriteNetworkRecording> | FavoriteNetworkRecording>;
+  replayFavoriteNetworkRequests?: (payload: {
+    endpointKeyword: string;
+    mode: 'favorite' | 'unfavorite';
+  }) => Promise<ServiceResult<FavoriteReplayResult> | FavoriteReplayResult>;
 }
 
 declare global {

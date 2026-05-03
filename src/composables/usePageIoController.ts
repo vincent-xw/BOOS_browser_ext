@@ -1,5 +1,12 @@
 import { computed, ref } from 'vue';
 import { chromeMcpService } from '../services/chromeMcpService';
+import {
+  buildCandidateKey,
+  getResultsByKeys,
+  saveResults,
+  type CandidateDbResult,
+} from '../services/candidateResultDb';
+import { exportCandidatesXlsx } from '../services/exportService';
 import { llmService } from '../services/llmService';
 import { settingsService } from '../services/settingsService';
 import type {
@@ -54,16 +61,6 @@ function randomDelayMs(minSeconds: number, maxSeconds: number): number {
 
 async function delay(ms: number): Promise<void> {
   await new Promise((resolve) => window.setTimeout(resolve, ms));
-}
-
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
-  const timeoutPromise = new Promise<T>((_, reject) => {
-    window.setTimeout(() => {
-      reject(new Error(`操作超时（>${timeoutMs}ms）`));
-    }, timeoutMs);
-  });
-
-  return Promise.race([promise, timeoutPromise]);
 }
 
 function buildCandidateSnapshotSignature(candidates: CandidateSummary[]): string {
@@ -161,6 +158,8 @@ export function usePageIoController() {
   const settingsWarnings = ref<string[]>(loadedSettings.issues);
   const isRefreshingCandidateOverview = ref(false);
   const lastCandidateSnapshot = ref<CandidateSummary[] | null>(null);
+  const candidateResults = ref<Map<string, CandidateDbResult>>(new Map());
+  const singleProcessingKeys = ref<Set<string>>(new Set());
 
   const isBusy = computed(() => runState.value === 'running');
   const overallState = computed<OperationState>(() => runState.value);
@@ -193,9 +192,9 @@ export function usePageIoController() {
   function getCandidateStatusLabel(status: WorkflowProgress['records'][number]['status']) {
     switch (status) {
       case 'favorited':
-        return '已收藏';
+        return '推荐跟进';
       case 'skipped':
-        return '已跳过';
+        return '暂不跟进';
       case 'failed':
         return '失败';
       default:
@@ -278,6 +277,17 @@ export function usePageIoController() {
     return matched;
   }
 
+  async function loadCandidateResultsFromDb(candidates: CandidateSummary[]) {
+    if (!candidates.length) return;
+    const keys = candidates.map((c) => buildCandidateKey(c.name, c.previewText));
+    try {
+      const map = await getResultsByKeys(keys);
+      candidateResults.value = map;
+    } catch {
+      // Non-critical — silently ignore DB read errors
+    }
+  }
+
   async function refreshCandidateOverview() {
     if (runState.value === 'running') {
       return;
@@ -318,6 +328,7 @@ export function usePageIoController() {
       pageCandidates.value = candidates;
       candidateOverview.value = buildCandidateOverview(candidates, lastCandidateSnapshot.value);
       lastCandidateSnapshot.value = candidates;
+      void loadCandidateResultsFromDb(candidates).then(() => highlightAllProcessedOnPage());
     } finally {
       isRefreshingCandidateOverview.value = false;
     }
@@ -334,81 +345,32 @@ export function usePageIoController() {
     progress.value.succeeded += 1;
   }
 
-  async function processSingleCandidate(candidate: CandidateSummary): Promise<void> {
-    const selectors = createSelectors(settings.value);
-    progress.value.currentCandidateName = candidate.name;
-
-    const detailResult = await chromeMcpService.openCandidateDetail(candidate, selectors);
-    provider.value = detailResult.provider;
-    mode.value = detailResult.mode;
-
-    if (!detailResult.ok || !detailResult.data?.opened) {
-      appendRecord({
-        candidate,
-        status: 'failed',
-        reason: detailResult.data?.message || detailResult.error?.message || '打开候选人详情失败。',
+  async function highlightAllProcessedOnPage() {
+    if (!pageCandidates.value.length) return;
+    const items = pageCandidates.value
+      .map((c) => {
+        const res = candidateResults.value.get(buildCandidateKey(c.name, c.previewText));
+        if (!res) return null;
+        return { index: c.index, shouldFavorite: res.shouldFavorite, reason: res.reason };
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== null);
+    if (!items.length) return;
+    try {
+      const result = await chromeMcpService.highlightCandidates(
+        items,
+        settings.value.basic.candidateListItemSelector,
+      );
+      console.info('[BOOS Highlight] injected', {
+        candidateCount: pageCandidates.value.length,
+        processedCount: items.length,
+        recommendedIndexes: items.filter((i) => i.shouldFavorite).map((i) => i.index),
+        skippedIndexes: items.filter((i) => !i.shouldFavorite).map((i) => i.index),
+        selector: settings.value.basic.candidateListItemSelector,
+        ...result,
       });
-      return;
+    } catch (error) {
+      console.warn('[BOOS Highlight] inject failed', error);
     }
-
-    await delay(450);
-
-    const profileResult = await chromeMcpService.readCandidateProfile(selectors);
-    provider.value = profileResult.provider;
-    mode.value = profileResult.mode;
-
-    if (!profileResult.ok || !profileResult.data) {
-      appendRecord({
-        candidate,
-        status: 'failed',
-        reason: profileResult.error?.message || '读取在线简历失败。',
-      });
-      return;
-    }
-
-    if (!profileResult.data.resumeText.trim()) {
-      appendRecord({
-        candidate,
-        status: 'failed',
-        reason: '简历内容为空，无法进行模型评估。',
-      });
-      return;
-    }
-
-    const assessment = await llmService.assessCandidate(
-      settings.value,
-      promptText.value,
-      candidate,
-      profileResult.data,
-    );
-
-    if (!assessment.shouldFavorite) {
-      appendRecord({
-        candidate,
-        status: 'skipped',
-        reason: assessment.reason,
-      });
-      return;
-    }
-
-    const favoriteResult = await chromeMcpService.clickFavoriteButton(selectors);
-    provider.value = favoriteResult.provider;
-    mode.value = favoriteResult.mode;
-
-    if (!favoriteResult.ok || !favoriteResult.data?.clicked) {
-      appendRecord({
-        candidate,
-        status: 'failed',
-        reason: favoriteResult.data?.message || favoriteResult.error?.message || '点击收藏失败。',
-      });
-      return;
-    }
-
-    appendRecord({
-      candidate,
-      status: 'favorited',
-      reason: assessment.reason,
-    });
   }
 
   async function handleRunWorkflow() {
@@ -458,26 +420,95 @@ export function usePageIoController() {
       return;
     }
 
-    progress.value.total = listResult.data.length;
-    pageCandidates.value = listResult.data;
-    candidateOverview.value = buildCandidateOverview(listResult.data, lastCandidateSnapshot.value);
-    lastCandidateSnapshot.value = listResult.data;
+    // Only update the visible list when it's empty or clearly changed — preserve existing data during reprocessing
+    const fetchedCandidates = listResult.data;
+    if (!pageCandidates.value.length) {
+      pageCandidates.value = fetchedCandidates;
+    }
+    candidateOverview.value = buildCandidateOverview(fetchedCandidates, lastCandidateSnapshot.value);
+    lastCandidateSnapshot.value = fetchedCandidates;
 
-    for (const candidate of listResult.data) {
-      try {
-        await withTimeout(
-          processSingleCandidate(candidate),
-          settings.value.advanced.perCandidateTimeoutMs,
+    // Reload DB results for this candidate list and skip already-processed ones
+    await loadCandidateResultsFromDb(fetchedCandidates);
+    const pendingCandidates = fetchedCandidates.filter(
+      (c) => !candidateResults.value.has(buildCandidateKey(c.name, c.previewText)),
+    );
+
+    progress.value.total = pendingCandidates.length;
+
+    if (!pendingCandidates.length) {
+      progress.value.currentCandidateName = '';
+      runState.value = 'succeeded';
+      return;
+    }
+
+    const batchSize = Math.max(1, settings.value.advanced.batchSize ?? 10);
+
+    try {
+      for (let offset = 0; offset < pendingCandidates.length; offset += batchSize) {
+        const batch = pendingCandidates.slice(offset, offset + batchSize);
+        progress.value.currentCandidateName = `正在处理第 ${offset + 1}–${Math.min(offset + batchSize, pendingCandidates.length)} 条...`;
+
+        const batchResult = await llmService.assessCandidateList(
+          settings.value,
+          promptText.value,
+          batch,
         );
-      } catch (error) {
-        appendRecord({
-          candidate,
-          status: 'failed',
-          reason: error instanceof Error ? error.message : '候选人处理超时或失败。',
-        });
-      }
 
-      await delay(randomDelayMs(1, 5));
+        const decisionMap = new Map(batchResult.decisions.map((item) => [item.index, item]));
+        const dbRecordsToSave: CandidateDbResult[] = [];
+
+        for (const candidate of batch) {
+          const decision = decisionMap.get(candidate.index);
+          if (!decision) {
+            appendRecord({
+              candidate,
+              status: 'failed',
+              reason: 'LLM 未返回该候选人的判断结果。',
+            });
+            continue;
+          }
+
+          appendRecord({
+            candidate,
+            status: decision.shouldFavorite ? 'favorited' : 'skipped',
+            reason: decision.reason,
+          });
+
+          const dbRecord: CandidateDbResult = {
+            key: buildCandidateKey(candidate.name, candidate.previewText),
+            name: candidate.name,
+            previewText: candidate.previewText,
+            shouldFavorite: decision.shouldFavorite,
+            reason: decision.reason,
+            processedAt: new Date().toISOString(),
+            model: settings.value.advanced.llmModel,
+          };
+          dbRecordsToSave.push(dbRecord);
+          candidateResults.value.set(dbRecord.key, dbRecord);
+        }
+
+        try {
+          await saveResults(dbRecordsToSave);
+        } catch {
+          // Non-critical — continue even if DB write fails
+        }
+
+        // Highlight processed candidates on page after each batch
+        void highlightAllProcessedOnPage();
+
+        if (offset + batchSize < pendingCandidates.length) {
+          await delay(randomDelayMs(0.3, 0.6));
+        }
+      }
+    } catch (error) {
+      runState.value = 'failed';
+      runError.value = {
+        code: 'EXECUTION_FAILED',
+        message: error instanceof Error ? error.message : 'LLM 批量评估失败。',
+      };
+      progress.value.currentCandidateName = '';
+      return;
     }
 
     progress.value.currentCandidateName = '';
@@ -488,8 +519,51 @@ export function usePageIoController() {
         message: '流程已完成，但存在失败候选人，请查看处理记录。',
       };
     }
+  }
 
-    await refreshCandidateOverview();
+  function handleExport() {
+    exportCandidatesXlsx(
+      pageCandidates.value,
+      candidateResults.value,
+      settings.value.advanced.exportMode,
+      buildCandidateKey,
+    );
+  }
+
+  async function processSingleCandidate(candidate: CandidateSummary) {
+    const key = buildCandidateKey(candidate.name, candidate.previewText);
+    if (singleProcessingKeys.value.has(key)) return;
+
+    singleProcessingKeys.value = new Set(singleProcessingKeys.value).add(key);
+
+    try {
+      const batchResult = await llmService.assessCandidateList(
+        settings.value,
+        promptText.value,
+        [candidate],
+      );
+
+      const decision = batchResult.decisions.find((d) => d.index === candidate.index);
+      const dbRecord: CandidateDbResult = {
+        key,
+        name: candidate.name,
+        previewText: candidate.previewText,
+        shouldFavorite: decision?.shouldFavorite ?? false,
+        reason: decision?.reason ?? 'LLM 未返回结果。',
+        processedAt: new Date().toISOString(),
+        model: settings.value.advanced.llmModel,
+      };
+
+      await saveResults([dbRecord]);
+      const next = new Map(candidateResults.value);
+      next.set(key, dbRecord);
+      candidateResults.value = next;
+      void highlightAllProcessedOnPage();
+    } finally {
+      const next = new Set(singleProcessingKeys.value);
+      next.delete(key);
+      singleProcessingKeys.value = next;
+    }
   }
 
   return {
@@ -508,6 +582,8 @@ export function usePageIoController() {
     currentDomain,
     isBusy,
     isRefreshingCandidateOverview,
+    candidateResults,
+    singleProcessingKeys,
     overallState,
     overallMessage,
     overallMessageType,
@@ -519,5 +595,7 @@ export function usePageIoController() {
     checkDomainMatch,
     refreshCandidateOverview,
     handleRunWorkflow,
+    processSingleCandidate,
+    handleExport,
   };
 }

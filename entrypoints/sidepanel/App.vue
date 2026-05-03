@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted } from 'vue';
 import { ElMessage } from 'element-plus';
-import { Connection, Position, RefreshRight, Setting, Tickets } from '@element-plus/icons-vue';
+import { Connection, Position, RefreshRight, Setting, Tickets, Download } from '@element-plus/icons-vue';
 import ExtensionAppShell from '../../src/components/ExtensionAppShell.vue';
 import ExtensionSettingsPanel from '../../src/components/ExtensionSettingsPanel.vue';
 import { usePageIoController } from '../../src/composables/usePageIoController';
 import { ref } from 'vue';
 import { runDiagnostics, formatDiagnosticResult } from '../../src/services/diagnosticService';
 import type { DiagnosticResult } from '../../src/services/diagnosticService';
+import { buildCandidateKey } from '../../src/services/candidateResultDb';
 
 const {
   runState,
@@ -25,6 +26,8 @@ const {
   currentDomain,
   isBusy,
   isRefreshingCandidateOverview,
+  candidateResults,
+  singleProcessingKeys,
   overallMessage,
   overallMessageType,
   providerLabel,
@@ -34,6 +37,8 @@ const {
   checkDomainMatch,
   refreshCandidateOverview,
   handleRunWorkflow,
+  processSingleCandidate,
+  handleExport,
 } = usePageIoController();
 
 const settingsVisible = ref(false);
@@ -113,6 +118,24 @@ const candidatePreviewLabel = computed(() => {
   }
 
   return candidateOverview.value.sampleNames.join('、');
+});
+
+const candidateResultSummary = computed(() => {
+  let recommended = 0;
+  let notRecommended = 0;
+  let pending = 0;
+  for (const c of pageCandidates.value) {
+    const key = buildCandidateKey(c.name, c.previewText);
+    const result = candidateResults.value.get(key);
+    if (!result) {
+      pending++;
+    } else if (result.shouldFavorite) {
+      recommended++;
+    } else {
+      notRecommended++;
+    }
+  }
+  return { recommended, notRecommended, pending, total: pageCandidates.value.length };
 });
 
 const pageCandidatesEmptyText = computed(() => {
@@ -273,7 +296,7 @@ onBeforeUnmount(() => {
       <el-card class="panel-card" shadow="never">
         <template #header>
           <div class="panel-header">
-            <span>自动收藏执行面板</span>
+            <span>自动处理执行面板</span>
             <el-tag :type="runTagType" effect="plain">{{ runStateLabel }}</el-tag>
           </div>
         </template>
@@ -284,7 +307,7 @@ onBeforeUnmount(() => {
             type="textarea"
             :rows="6"
             resize="none"
-            placeholder="请输入用于评估候选人的 Prompt（例如：优先收藏 3 年以上 Java 后端经验、近两年稳定性高的候选人）"
+            placeholder="请输入评估策略 Prompt（例如：优先推荐 3 年以上 Java 后端经验、稳定性高的候选人）"
           />
 
           <el-space wrap>
@@ -371,22 +394,78 @@ onBeforeUnmount(() => {
 
           <div class="section-title-row">
             <span class="section-title">当前页面候选人数据</span>
-            <el-tag size="small" effect="plain">{{ pageCandidates.length }} 条</el-tag>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <el-tag size="small" effect="plain">{{ pageCandidates.length }} 条</el-tag>
+              <el-tooltip :content="settings.advanced.exportMode === 'processed' ? '导出 LLM 已处理的候选人' : '导出全部候选人'" placement="top">
+                <el-button
+                  :icon="Download"
+                  size="small"
+                  plain
+                  :disabled="!pageCandidates.length"
+                  @click="handleExport"
+                >
+                  导出 XLSX
+                </el-button>
+              </el-tooltip>
+            </div>
+          </div>
+
+          <div v-if="pageCandidates.length" class="candidate-result-summary">
+            <el-tag type="success" effect="plain" size="small">
+              推荐跟进 {{ candidateResultSummary.recommended }}
+            </el-tag>
+            <el-tag type="info" effect="plain" size="small">
+              暂不跟进 {{ candidateResultSummary.notRecommended }}
+            </el-tag>
+            <el-tag type="warning" effect="plain" size="small">
+              待处理 {{ candidateResultSummary.pending }}
+            </el-tag>
           </div>
 
           <el-table
             :data="pageCandidates"
             size="small"
-            max-height="260"
+            max-height="320"
             :empty-text="pageCandidatesEmptyText"
           >
-            <el-table-column label="#" width="60">
+            <el-table-column label="#" width="42">
               <template #default="scope">
                 {{ scope.row.index + 1 }}
               </template>
             </el-table-column>
-            <el-table-column prop="name" label="候选人" min-width="120" />
-            <el-table-column prop="previewText" label="页面摘要" min-width="240" show-overflow-tooltip />
+            <el-table-column prop="name" label="候选人" min-width="80" />
+            <el-table-column prop="previewText" label="摘要" min-width="120" show-overflow-tooltip />
+            <el-table-column label="AI 结果" min-width="90">
+              <template #default="scope">
+                <template v-if="candidateResults.get(buildCandidateKey(scope.row.name, scope.row.previewText))">
+                  <el-tag
+                    :type="candidateResults.get(buildCandidateKey(scope.row.name, scope.row.previewText))!.shouldFavorite ? 'success' : 'info'"
+                    size="small"
+                    effect="plain"
+                  >
+                    {{ candidateResults.get(buildCandidateKey(scope.row.name, scope.row.previewText))!.shouldFavorite ? '推荐' : '跳过' }}
+                  </el-tag>
+                </template>
+                <span v-else class="candidate-pending-label">待处理</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="理由" min-width="160" show-overflow-tooltip>
+              <template #default="scope">
+                {{ candidateResults.get(buildCandidateKey(scope.row.name, scope.row.previewText))?.reason ?? '—' }}
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="64" fixed="right">
+              <template #default="scope">
+                <el-button
+                  size="small"
+                  :loading="singleProcessingKeys.has(buildCandidateKey(scope.row.name, scope.row.previewText))"
+                  :disabled="isBusy"
+                  @click="processSingleCandidate(scope.row)"
+                >
+                  处理
+                </el-button>
+              </template>
+            </el-table-column>
           </el-table>
 
           <div class="section-title-row">
@@ -448,7 +527,6 @@ onBeforeUnmount(() => {
             label="权限状态"
             :value="diagnosticResult.hostPermissionOk ? '已授予' : '未授予'"
           />
-          <el-statistic label="Canvas 简历" :value="diagnosticResult.resumeCanvasFound ? '有' : '无'" />
         </div>
       </div>
 
@@ -456,6 +534,7 @@ onBeforeUnmount(() => {
         <el-button @click="diagnosticVisible = false">关闭</el-button>
       </template>
     </el-dialog>
+
   </ExtensionAppShell>
 </template>
 
@@ -491,6 +570,19 @@ onBeforeUnmount(() => {
 
 .page-overview-bar__text {
   color: #64748b;
+  font-size: 12px;
+}
+
+.candidate-result-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 6px 0 2px;
+}
+
+.candidate-pending-label {
+  color: #94a3b8;
   font-size: 12px;
 }
 
@@ -575,4 +667,5 @@ onBeforeUnmount(() => {
   background: #f0f9ff;
   border-radius: 4px;
 }
+
 </style>

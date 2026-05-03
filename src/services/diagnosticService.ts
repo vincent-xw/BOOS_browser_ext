@@ -9,7 +9,6 @@ export interface DiagnosticResult {
   candidateListFound: boolean;
   candidateCount: number;
   sampleNames: string[];
-  resumeCanvasFound: boolean;
   hostPermissionOk: boolean;
   error: string | null;
   details: Record<string, any>;
@@ -18,9 +17,6 @@ export interface DiagnosticResult {
 interface DiagnosticFrameData {
   listItemCount: number;
   sampleNames: string[];
-  resumeCanvasExists: boolean;
-  resumeCanvasWidth?: number;
-  resumeCanvasHeight?: number;
   pageTitle: string;
   pageUrl: string;
 }
@@ -61,14 +57,9 @@ async function testExecuteScript(tabId: number): Promise<{
           .slice(0, 3)
           .map((item) => item.querySelector('.name')?.textContent?.trim() || '(无名称)');
 
-        const resumeCanvas = document.getElementById('resume') as HTMLCanvasElement | null;
-
         return {
           listItemCount: listItems.length,
           sampleNames: names,
-          resumeCanvasExists: !!resumeCanvas,
-          resumeCanvasWidth: resumeCanvas?.width,
-          resumeCanvasHeight: resumeCanvas?.height,
           pageTitle: document.title,
           pageUrl: location.href,
         };
@@ -97,19 +88,12 @@ async function testExecuteScript(tabId: number): Promise<{
             return right.listItemCount - left.listItemCount;
           }
 
-          if (right.resumeCanvasExists !== left.resumeCanvasExists) {
-            return Number(right.resumeCanvasExists) - Number(left.resumeCanvasExists);
-          }
-
           return (right.pageUrl?.length ?? 0) - (left.pageUrl?.length ?? 0);
         })[0] ?? null;
 
     const aggregatedData: AggregatedDiagnosticData = {
       listItemCount: bestFrame?.listItemCount ?? 0,
       sampleNames: bestFrame?.sampleNames ?? [],
-      resumeCanvasExists: bestFrame?.resumeCanvasExists ?? false,
-      resumeCanvasWidth: bestFrame?.resumeCanvasWidth,
-      resumeCanvasHeight: bestFrame?.resumeCanvasHeight,
       pageTitle: bestFrame?.pageTitle ?? '',
       pageUrl: bestFrame?.pageUrl ?? '',
       frameCount: allFrames.length,
@@ -137,7 +121,6 @@ export async function runDiagnostics(): Promise<DiagnosticResult> {
     candidateListFound: false,
     candidateCount: 0,
     sampleNames: [],
-    resumeCanvasFound: false,
     hostPermissionOk: false,
     error: null,
     details: {},
@@ -170,7 +153,6 @@ export async function runDiagnostics(): Promise<DiagnosticResult> {
     result.candidateCount = data.listItemCount ?? 0;
     result.sampleNames = data.sampleNames ?? [];
     result.candidateListFound = result.candidateCount > 0;
-    result.resumeCanvasFound = data.resumeCanvasExists ?? false;
 
     if (result.candidateListFound) {
       result.hostPermissionOk = true;
@@ -206,8 +188,6 @@ export function formatDiagnosticResult(result: DiagnosticResult): string {
     lines.push(`  候选人总数：${result.candidateCount}`);
     lines.push(`  前 3 个候选人：${result.sampleNames.join(' / ')}`);
   }
-
-  lines.push(`✓ 检测到简历 Canvas：${result.resumeCanvasFound ? '是' : '否'}`);
 
   lines.push(`✓ Host 权限检查：${result.hostPermissionOk ? '已授予' : '未授予'}`);
 
