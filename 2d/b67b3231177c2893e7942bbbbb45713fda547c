@@ -1,0 +1,55 @@
+src/types/settings.ts
+  3d975c9d7a8bc8ab 32
+wxt.config.ts
+  3d975c9d7a8bc8ab 13-14
+src/composables/usePageIoController.ts
+  3d975c9d7a8bc8ab 10,28-39,69-145,151,154-155,162-163,167-178,193-205,232-242,281-325,462-464,491-492,497,499-502,510,516,520
+src/services/settingsService.ts
+  3d975c9d7a8bc8ab 17-41,66-69,75-78,87-90,99-102
+entrypoints/sidepanel/App.vue
+  3d975c9d7a8bc8ab 2,4,9-10,14,16-19,27,32,35,41-44,89-133,146,152-162,165-177,179-218,231-269,277,300-308,328-343,351-363,372-397,399-403,416-458,480,484-577
+.wxt/types/imports.d.ts
+  3d975c9d7a8bc8ab 113-193
+src/types/page-io.ts
+  3d975c9d7a8bc8ab 48-57
+entrypoints/background.ts
+  h_4581b25f30fed0 3-13
+  3d975c9d7a8bc8ab 1-2
+src/components/ExtensionAppShell.vue
+  3d975c9d7a8bc8ab 89
+entrypoints/sidepanel/style.scss
+  3d975c9d7a8bc8ab 15
+src/services/diagnosticService.ts
+  3d975c9d7a8bc8ab 1-223
+src/services/chromeMcpService.ts
+  3d975c9d7a8bc8ab 16-22,68-97,109-130,191-192,209-215,245-246,305-309,396,400,427-429,463-465,473,477,504-506,528-532,542,546,573-575,606-612,619,623,650-652,687-691
+src/components/ExtensionSettingsPanel.vue
+  3d975c9d7a8bc8ab 55,59-62,67,73
+entrypoints/sidepanel/index.html
+  3d975c9d7a8bc8ab 6
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "2db67b3231177c2893e7942bbbbb45713fda547c",
+  "prompts": {
+    "3d975c9d7a8bc8ab": {
+      "agent_id": {
+        "tool": "github-copilot",
+        "id": "9858b1a3-b434-4659-87b1-10462293db03",
+        "model": "copilot/auto"
+      },
+      "human_author": "xuewen.jia",
+      "messages": [],
+      "total_additions": 1458,
+      "total_deletions": 393,
+      "accepted_lines": 1298,
+      "overriden_lines": 0
+    }
+  },
+  "humans": {
+    "h_4581b25f30fed0": {
+      "author": "xuewen.jia"
+    }
+  }
+}
