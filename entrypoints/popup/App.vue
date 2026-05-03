@@ -1,27 +1,35 @@
 <script setup lang="ts">
 import { computed } from 'vue';
+import { ElMessage } from 'element-plus';
 import ExtensionAppShell from '../../src/components/ExtensionAppShell.vue';
+import ExtensionSettingsPanel from '../../src/components/ExtensionSettingsPanel.vue';
 import { usePageIoController } from '../../src/composables/usePageIoController';
+import { ref } from 'vue';
 
 const {
-  readState,
-  writeState,
-  readResult,
-  writeResult,
-  readError,
-  writeError,
-  writeText,
+  runState,
+  runError,
+  promptText,
+  progress,
+  settings,
+  settingsWarnings,
+  domainStatus,
+  currentDomain,
   isBusy,
   overallMessage,
   overallMessageType,
   providerLabel,
   modeLabel,
-  handleRead,
-  handleWrite,
+  saveSettings,
+  checkDomainMatch,
+  handleRunWorkflow,
 } = usePageIoController();
 
-const readTagType = computed(() => {
-  switch (readState.value) {
+const settingsVisible = ref(false);
+const settingsSaving = ref(false);
+
+const runTagType = computed(() => {
+  switch (runState.value) {
     case 'running':
       return 'warning';
     case 'succeeded':
@@ -33,132 +41,161 @@ const readTagType = computed(() => {
   }
 });
 
-const writeTagType = computed(() => {
-  switch (writeState.value) {
-    case 'running':
-      return 'warning';
-    case 'succeeded':
+const domainTagType = computed(() => {
+  switch (domainStatus.value) {
+    case 'matched':
       return 'success';
-    case 'failed':
+    case 'mismatched':
       return 'danger';
     default:
       return 'info';
   }
 });
+
+const domainLabel = computed(() => {
+  switch (domainStatus.value) {
+    case 'matched':
+      return `站点匹配：${currentDomain.value}`;
+    case 'mismatched':
+      return `站点不匹配：${currentDomain.value || '未知'}`;
+    default:
+      return '站点待检测';
+  }
+});
+
+const progressRate = computed(() => {
+  if (!progress.value.total) {
+    return 0;
+  }
+
+  return Math.round((progress.value.processed / progress.value.total) * 100);
+});
+
+async function handleSaveSettings(nextSettings: typeof settings.value) {
+  settingsSaving.value = true;
+
+  try {
+    const result = saveSettings(nextSettings);
+    if (result.ok) {
+      ElMessage.success('设置已保存并生效。');
+    } else {
+      ElMessage.warning(result.issues.join('；'));
+    }
+
+    settingsVisible.value = false;
+  } finally {
+    settingsSaving.value = false;
+  }
+}
+
+async function handleCheckSite() {
+  const matched = await checkDomainMatch();
+  if (matched) {
+    ElMessage.success('当前页面域名匹配配置，可执行自动处理。');
+    return;
+  }
+
+  ElMessage.warning('当前页面域名不匹配，请检查基础设置中的目标域名。');
+}
 </script>
 
 <template>
   <ExtensionAppShell
-    title="页面读写基础架构"
-    description="一个面向后续扩展的浏览器插件壳层，用于验证 Chrome MCP 页面读写交互。"
+    title="BOSS助手"
+    description="基于AI大模型的BOSS人才挖掘工具"
     :provider-label="providerLabel"
     :mode-label="modeLabel"
     :status-message="overallMessage"
     :status-type="overallMessageType"
   >
+    <template #header-actions>
+      <el-button size="small" plain @click="settingsVisible = true">设置</el-button>
+    </template>
+
     <div class="popup-layout">
-      <el-row :gutter="12">
-        <el-col :span="24">
-          <el-card class="panel-card" shadow="never">
-            <template #header>
-              <div class="panel-header">
-                <span>页面读取</span>
-                <el-tag :type="readTagType" effect="plain">{{ readState }}</el-tag>
-              </div>
-            </template>
+      <el-card class="panel-card" shadow="never">
+        <template #header>
+          <div class="panel-header">
+            <span>自动收藏执行面板</span>
+            <el-tag :type="runTagType" effect="plain">{{ runState }}</el-tag>
+          </div>
+        </template>
 
-            <el-space direction="vertical" fill :size="12">
-              <el-button type="primary" :loading="readState === 'running'" @click="handleRead">
-                读取当前页面信息
-              </el-button>
+        <el-space direction="vertical" fill :size="12">
+          <el-input
+            v-model="promptText"
+            type="textarea"
+            :rows="6"
+            resize="none"
+            placeholder="请输入用于评估候选人的 Prompt（例如：优先收藏 3 年以上 Java 后端经验、近两年稳定性高的候选人）"
+          />
 
-              <el-alert
-                v-if="readError"
-                :title="readError.message"
-                type="error"
-                :description="readError.details || '请检查当前标签页是否可访问。'"
-                :closable="false"
-                show-icon
-              />
+          <el-space wrap>
+            <el-button :disabled="isBusy" @click="handleCheckSite">检测当前站点</el-button>
+            <el-button
+              type="primary"
+              :loading="runState === 'running'"
+              :disabled="!promptText.trim()"
+              @click="handleRunWorkflow"
+            >
+              开始自动处理
+            </el-button>
+          </el-space>
 
-              <el-descriptions v-else-if="readResult" :column="1" border size="small">
-                <el-descriptions-item label="页面标题">{{ readResult.title }}</el-descriptions-item>
-                <el-descriptions-item label="页面地址">{{ readResult.url }}</el-descriptions-item>
-                <el-descriptions-item label="当前选中文本">
-                  {{ readResult.selectionText || '暂无选中文本' }}
-                </el-descriptions-item>
-                <el-descriptions-item label="激活元素">
-                  {{ readResult.activeElementTag || '无' }}
-                </el-descriptions-item>
-                <el-descriptions-item label="正文预览">
-                  {{ readResult.bodyPreview || '当前页面暂无可读取文本预览' }}
-                </el-descriptions-item>
-                <el-descriptions-item label="读取时间">{{ readResult.timestamp }}</el-descriptions-item>
-              </el-descriptions>
+          <el-space wrap>
+            <el-tag :type="domainTagType" effect="plain">{{ domainLabel }}</el-tag>
+            <el-tag type="info" effect="plain">目标域名：{{ settings.basic.targetDomain }}</el-tag>
+            <el-tag type="warning" effect="plain">当前模式：{{ modeLabel }}</el-tag>
+          </el-space>
 
-              <el-empty v-else description="尚未执行页面读取" :image-size="72" />
-            </el-space>
-          </el-card>
-        </el-col>
+          <el-alert
+            v-if="settingsWarnings.length"
+            type="warning"
+            :closable="false"
+            show-icon
+            :title="settingsWarnings.join('；')"
+          />
 
-        <el-col :span="24">
-          <el-card class="panel-card" shadow="never">
-            <template #header>
-              <div class="panel-header">
-                <span>页面写入</span>
-                <el-tag :type="writeTagType" effect="plain">{{ writeState }}</el-tag>
-              </div>
-            </template>
+          <el-alert
+            v-if="runError"
+            :title="runError.message"
+            :description="runError.details"
+            type="error"
+            :closable="false"
+            show-icon
+          />
 
-            <el-space direction="vertical" fill :size="12">
-              <el-input
-                v-model="writeText"
-                type="textarea"
-                :rows="5"
-                resize="none"
-                placeholder="输入要写入页面的内容；若页面存在激活输入框，将优先写入该位置。"
-              />
+          <el-progress
+            :percentage="progressRate"
+            :status="runState === 'failed' ? 'exception' : runState === 'succeeded' ? 'success' : undefined"
+            :stroke-width="10"
+          />
 
-              <el-button
-                type="success"
-                :disabled="!writeText.trim()"
-                :loading="writeState === 'running'"
-                @click="handleWrite"
-              >
-                写入当前页面
-              </el-button>
+          <el-descriptions :column="2" border size="small">
+            <el-descriptions-item label="总候选人数">{{ progress.total }}</el-descriptions-item>
+            <el-descriptions-item label="已处理">{{ progress.processed }}</el-descriptions-item>
+            <el-descriptions-item label="成功/跳过">{{ progress.succeeded }}</el-descriptions-item>
+            <el-descriptions-item label="失败">{{ progress.failed }}</el-descriptions-item>
+            <el-descriptions-item label="当前处理">
+              {{ progress.currentCandidateName || '暂无' }}
+            </el-descriptions-item>
+          </el-descriptions>
 
-              <el-alert
-                v-if="writeError"
-                :title="writeError.message"
-                type="error"
-                :description="writeError.details || '请聚焦一个可编辑区域后重试。'"
-                :closable="false"
-                show-icon
-              />
-
-              <el-result
-                v-else-if="writeResult"
-                :icon="writeState === 'succeeded' ? 'success' : 'info'"
-                :title="writeResult.message"
-                :sub-title="`写入目标：${writeResult.target} · 时间：${writeResult.timestamp}`"
-              >
-                <template #extra>
-                  <el-text type="info">写入内容：{{ writeResult.writtenText }}</el-text>
-                </template>
-              </el-result>
-            </el-space>
-          </el-card>
-        </el-col>
-      </el-row>
-
-      <el-divider />
-
-      <el-space alignment="center" wrap>
-        <el-tag type="info" effect="plain">共享状态：{{ isBusy ? 'busy' : 'ready' }}</el-tag>
-        <el-tag type="warning" effect="plain">支持未来多入口扩展</el-tag>
-      </el-space>
+          <el-table :data="progress.records" size="small" max-height="220">
+            <el-table-column prop="candidate.name" label="候选人" min-width="140" />
+            <el-table-column prop="status" label="结果" width="90" />
+            <el-table-column prop="reason" label="说明" min-width="220" show-overflow-tooltip />
+          </el-table>
+        </el-space>
+      </el-card>
     </div>
+
+    <ExtensionSettingsPanel
+      v-model="settingsVisible"
+      :settings="settings"
+      :saving="settingsSaving"
+      @save="handleSaveSettings"
+    />
   </ExtensionAppShell>
 </template>
 

@@ -24,9 +24,12 @@ withDefaults(
             <h1>{{ title }}</h1>
             <p>{{ description }}</p>
           </div>
-          <div class="extension-shell__tags">
-            <el-tag type="primary" effect="light">{{ providerLabel }}</el-tag>
-            <el-tag type="success" effect="plain">{{ modeLabel }}</el-tag>
+          <div class="extension-shell__meta">
+            <slot name="header-actions" />
+            <div class="extension-shell__tags">
+              <el-tag type="primary" effect="light">{{ providerLabel }}</el-tag>
+              <el-tag type="success" effect="plain">{{ modeLabel }}</el-tag>
+            </div>
           </div>
         </div>
       </template>
@@ -89,6 +92,13 @@ p {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
+  gap: 8px;
+}
+
+.extension-shell__meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
   gap: 8px;
 }
 

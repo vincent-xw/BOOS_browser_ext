@@ -1,44 +1,74 @@
 import { computed, ref } from 'vue';
 import { chromeMcpService } from '../services/chromeMcpService';
+import { llmService } from '../services/llmService';
+import { settingsService } from '../services/settingsService';
 import type {
+  CandidateQuerySelectors,
+  CandidateSummary,
   OperationError,
   OperationState,
-  PageReadData,
-  PageWriteData,
   ProviderKind,
   ProviderMode,
+  WorkflowProgress,
 } from '../types/page-io';
+import type { AppSettings } from '../types/settings';
+
+function createInitialProgress(): WorkflowProgress {
+  return {
+    total: 0,
+    processed: 0,
+    succeeded: 0,
+    failed: 0,
+    currentCandidateName: '',
+    records: [],
+  };
+}
+
+function createSelectors(settings: AppSettings): CandidateQuerySelectors {
+  return {
+    listItemSelector: settings.basic.candidateListItemSelector,
+    nameSelector: settings.basic.candidateNameSelector,
+    resumeContainerSelector: settings.basic.resumeContainerSelector,
+    favoriteButtonSelector: settings.basic.favoriteButtonSelector,
+  };
+}
+
+function randomDelayMs(minSeconds: number, maxSeconds: number): number {
+  const min = Math.ceil(minSeconds * 1000);
+  const max = Math.floor(maxSeconds * 1000);
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+async function delay(ms: number): Promise<void> {
+  await new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  const timeoutPromise = new Promise<T>((_, reject) => {
+    window.setTimeout(() => {
+      reject(new Error(`操作超时（>${timeoutMs}ms）`));
+    }, timeoutMs);
+  });
+
+  return Promise.race([promise, timeoutPromise]);
+}
 
 export function usePageIoController() {
-  const readState = ref<OperationState>('idle');
-  const writeState = ref<OperationState>('idle');
-  const readResult = ref<PageReadData | null>(null);
-  const writeResult = ref<PageWriteData | null>(null);
-  const readError = ref<OperationError | null>(null);
-  const writeError = ref<OperationError | null>(null);
-  const writeText = ref('你好，来自 BOOS Browser Extension。');
+  const loadedSettings = settingsService.load();
+
+  const runState = ref<OperationState>('idle');
+  const runError = ref<OperationError | null>(null);
+  const promptText = ref('请根据岗位匹配度、稳定性、沟通能力判断是否值得收藏。');
+  const progress = ref<WorkflowProgress>(createInitialProgress());
   const provider = ref<ProviderKind>('unavailable');
   const mode = ref<ProviderMode>('fallback');
+  const domainStatus = ref<'unknown' | 'matched' | 'mismatched'>('unknown');
+  const currentDomain = ref('');
+  const settings = ref<AppSettings>(loadedSettings.normalized);
+  const settingsWarnings = ref<string[]>(loadedSettings.issues);
 
-  const isBusy = computed(
-    () => readState.value === 'running' || writeState.value === 'running',
-  );
-
-  const overallState = computed<OperationState>(() => {
-    if (isBusy.value) {
-      return 'running';
-    }
-
-    if (readState.value === 'failed' || writeState.value === 'failed') {
-      return 'failed';
-    }
-
-    if (readState.value === 'succeeded' || writeState.value === 'succeeded') {
-      return 'succeeded';
-    }
-
-    return 'idle';
-  });
+  const isBusy = computed(() => runState.value === 'running');
+  const overallState = computed<OperationState>(() => runState.value);
 
   const providerLabel = computed(() => {
     switch (provider.value) {
@@ -51,20 +81,18 @@ export function usePageIoController() {
     }
   });
 
-  const modeLabel = computed(() =>
-    mode.value === 'live' ? '实时模式' : '回退模式',
-  );
+  const modeLabel = computed(() => (mode.value === 'live' ? '实时模式' : '回退模式'));
 
   const overallMessage = computed(() => {
     switch (overallState.value) {
       case 'running':
-        return '正在执行页面读写操作，请稍候。';
+        return '正在执行牛人自动处理流程，请保持在候选人列表页面。';
       case 'succeeded':
-        return '最近一次页面操作已完成，可以继续读取或写入。';
+        return `流程已完成：成功 ${progress.value.succeeded}，失败 ${progress.value.failed}。`;
       case 'failed':
-        return '最近一次页面操作失败，请查看错误反馈后重试。';
+        return runError.value?.message || '流程执行失败，请检查配置后重试。';
       default:
-        return '基础架构已就绪，可通过下方按钮验证页面读取与写入能力。';
+        return '请先确认目标站点与高级设置，然后输入 Prompt 开始处理候选人。';
     }
   });
 
@@ -81,65 +109,226 @@ export function usePageIoController() {
     }
   });
 
-  async function handleRead() {
-    readState.value = 'running';
-    readError.value = null;
-
-    const result = await chromeMcpService.readPage();
-    provider.value = result.provider;
-    mode.value = result.mode;
-
-    if (result.ok && result.data) {
-      readResult.value = result.data;
-      readState.value = 'succeeded';
-      return;
-    }
-
-    readResult.value = null;
-    readError.value = result.error ?? {
-      code: 'EXECUTION_FAILED',
-      message: '读取页面失败。',
-    };
-    readState.value = 'failed';
+  function loadSettings() {
+    const loaded = settingsService.load();
+    settings.value = loaded.normalized;
+    settingsWarnings.value = loaded.issues;
   }
 
-  async function handleWrite() {
-    writeState.value = 'running';
-    writeError.value = null;
+  function saveSettings(next: AppSettings): { ok: boolean; issues: string[] } {
+    const saved = settingsService.save(next);
+    settings.value = saved.normalized;
+    settingsWarnings.value = saved.issues;
 
-    const result = await chromeMcpService.writePage({ text: writeText.value });
+    return {
+      ok: saved.valid,
+      issues: saved.issues,
+    };
+  }
+
+  async function checkDomainMatch(): Promise<boolean> {
+    const result = await chromeMcpService.getCurrentDomain();
     provider.value = result.provider;
     mode.value = result.mode;
 
-    if (result.ok && result.data) {
-      writeResult.value = result.data;
-      writeState.value = 'succeeded';
+    if (!result.ok || !result.data) {
+      domainStatus.value = 'unknown';
+      currentDomain.value = '';
+      runError.value = result.error ?? {
+        code: 'EXECUTION_FAILED',
+        message: '读取当前站点失败。',
+      };
+      return false;
+    }
+
+    currentDomain.value = result.data;
+    const matched = result.data === settings.value.basic.targetDomain;
+    domainStatus.value = matched ? 'matched' : 'mismatched';
+    return matched;
+  }
+
+  function appendRecord(record: WorkflowProgress['records'][number]) {
+    progress.value.records.push(record);
+    progress.value.processed += 1;
+    if (record.status === 'failed') {
+      progress.value.failed += 1;
       return;
     }
 
-    writeResult.value = null;
-    writeError.value = result.error ?? {
-      code: 'EXECUTION_FAILED',
-      message: '写入页面失败。',
-    };
-    writeState.value = 'failed';
+    progress.value.succeeded += 1;
+  }
+
+  async function processSingleCandidate(candidate: CandidateSummary): Promise<void> {
+    const selectors = createSelectors(settings.value);
+    progress.value.currentCandidateName = candidate.name;
+
+    const detailResult = await chromeMcpService.openCandidateDetail(candidate, selectors);
+    provider.value = detailResult.provider;
+    mode.value = detailResult.mode;
+
+    if (!detailResult.ok || !detailResult.data?.opened) {
+      appendRecord({
+        candidate,
+        status: 'failed',
+        reason: detailResult.data?.message || detailResult.error?.message || '打开候选人详情失败。',
+      });
+      return;
+    }
+
+    await delay(450);
+
+    const profileResult = await chromeMcpService.readCandidateProfile(selectors);
+    provider.value = profileResult.provider;
+    mode.value = profileResult.mode;
+
+    if (!profileResult.ok || !profileResult.data) {
+      appendRecord({
+        candidate,
+        status: 'failed',
+        reason: profileResult.error?.message || '读取在线简历失败。',
+      });
+      return;
+    }
+
+    if (!profileResult.data.resumeText.trim()) {
+      appendRecord({
+        candidate,
+        status: 'failed',
+        reason: '简历内容为空，无法进行模型评估。',
+      });
+      return;
+    }
+
+    const assessment = await llmService.assessCandidate(
+      settings.value,
+      promptText.value,
+      candidate,
+      profileResult.data,
+    );
+
+    if (!assessment.shouldFavorite) {
+      appendRecord({
+        candidate,
+        status: 'skipped',
+        reason: assessment.reason,
+      });
+      return;
+    }
+
+    const favoriteResult = await chromeMcpService.clickFavoriteButton(selectors);
+    provider.value = favoriteResult.provider;
+    mode.value = favoriteResult.mode;
+
+    if (!favoriteResult.ok || !favoriteResult.data?.clicked) {
+      appendRecord({
+        candidate,
+        status: 'failed',
+        reason: favoriteResult.data?.message || favoriteResult.error?.message || '点击收藏失败。',
+      });
+      return;
+    }
+
+    appendRecord({
+      candidate,
+      status: 'favorited',
+      reason: assessment.reason,
+    });
+  }
+
+  async function handleRunWorkflow() {
+    runState.value = 'running';
+    runError.value = null;
+    progress.value = createInitialProgress();
+
+    if (!promptText.value.trim()) {
+      runState.value = 'failed';
+      runError.value = {
+        code: 'INVALID_INPUT',
+        message: '请输入用于评估候选人的 Prompt。',
+      };
+      return;
+    }
+
+    const matched = await checkDomainMatch();
+    if (!matched) {
+      runState.value = 'failed';
+      runError.value = {
+        code: 'DOMAIN_MISMATCH',
+        message: `当前站点 ${currentDomain.value || '未知'} 与配置域名 ${settings.value.basic.targetDomain} 不匹配。`,
+      };
+      return;
+    }
+
+    if (!settings.value.advanced.llmApiEndpoint || !settings.value.advanced.llmApiKey) {
+      runState.value = 'failed';
+      runError.value = {
+        code: 'CONFIG_MISSING',
+        message: '请先在高级设置中配置大模型 API Endpoint 与 API Key。',
+      };
+      return;
+    }
+
+    const selectors = createSelectors(settings.value);
+    const listResult = await chromeMcpService.readCandidateList(selectors);
+    provider.value = listResult.provider;
+    mode.value = listResult.mode;
+
+    if (!listResult.ok || !listResult.data) {
+      runState.value = 'failed';
+      runError.value = listResult.error ?? {
+        code: 'EXECUTION_FAILED',
+        message: '读取候选人列表失败。',
+      };
+      return;
+    }
+
+    progress.value.total = listResult.data.length;
+
+    for (const candidate of listResult.data) {
+      try {
+        await withTimeout(
+          processSingleCandidate(candidate),
+          settings.value.advanced.perCandidateTimeoutMs,
+        );
+      } catch (error) {
+        appendRecord({
+          candidate,
+          status: 'failed',
+          reason: error instanceof Error ? error.message : '候选人处理超时或失败。',
+        });
+      }
+
+      await delay(randomDelayMs(1, 5));
+    }
+
+    progress.value.currentCandidateName = '';
+    runState.value = progress.value.failed > 0 ? 'failed' : 'succeeded';
+    if (progress.value.failed > 0) {
+      runError.value = {
+        code: 'EXECUTION_FAILED',
+        message: '流程已完成，但存在失败候选人，请查看处理记录。',
+      };
+    }
   }
 
   return {
-    readState,
-    writeState,
-    readResult,
-    writeResult,
-    readError,
-    writeError,
-    writeText,
+    runState,
+    runError,
+    promptText,
+    progress,
+    settings,
+    settingsWarnings,
+    domainStatus,
+    currentDomain,
     isBusy,
     overallState,
     overallMessage,
     overallMessageType,
     providerLabel,
     modeLabel,
-    handleRead,
-    handleWrite,
+    loadSettings,
+    saveSettings,
+    checkDomainMatch,
+    handleRunWorkflow,
   };
 }

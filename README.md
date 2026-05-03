@@ -1,45 +1,56 @@
 # BOOS Browser Extension
 
-基于 `WXT + Vue 3 + Element Plus` 的浏览器插件基础架构，用于验证通过 Chrome MCP 集成层执行页面读取与页面写入操作。
+基于 `WXT + Vue 3 + Element Plus` 的 Chrome 扩展，用于在 BOSS 直聘候选人列表页面执行“读取简历 → LLM 判断 → 自动收藏”的半自动流程。
 
 ## 当前能力
 
-- 提供一个可运行的 `popup` UI 入口
-- 使用 Vue 3 与 Element Plus 构建基础壳层界面
-- 提供统一的页面读写服务抽象层 `chromeMcpService`
-- 优先接入 `window.chromeMcp` 桥接能力
-- 当真实 MCP 桥不可用时，自动回退到 `chrome.tabs + chrome.scripting` 页面读写实现
-- 在完全无扩展运行时能力的预览环境中，能够清晰展示不可用错误状态
+- 目标站点检测：检测当前标签页域名是否匹配（默认 `www.zhipin.com`）
+- 设置中心：
+	- 基础设置（域名、候选人列表/简历/收藏按钮选择器）
+	- 高级设置（LLM API Endpoint、API Key、模型、超时）
+	- 全部持久化到 `localStorage`
+- 主界面重构：右上角设置入口 + Prompt 输入 + 流程执行按钮
+- 自动化编排：候选人列表读取、详情打开、简历抓取、收藏点击
+- LLM 决策：将 `Prompt + 候选人摘要 + 简历文本` 发送到模型并解析收藏决策
+- 反检测节流：每位候选人处理后随机等待 1-5 秒
+- 失败可观测：站点不匹配、读取失败、LLM 失败等均有可读反馈
 
-## 开发命令
+## 开发命令（pnpm）
 
-- `npm install`：安装依赖
-- `npm run dev`：启动 WXT 开发模式
-- `npm run build`：构建 Chrome Manifest V3 产物
-- `npm run typecheck`：执行 TypeScript 类型检查
-- `npm run zip`：打包扩展产物
+- `pnpm install`：安装依赖
+- `pnpm run dev`：启动 WXT 开发模式
+- `pnpm run build`：构建 Chrome Manifest V3 产物
+- `pnpm run typecheck`：执行 TypeScript 类型检查
+- `pnpm run zip`：打包扩展产物
 
-## 项目结构
+> 本项目约定使用 `pnpm`，不要使用 npm/yarn。
 
-- `entrypoints/popup/`：popup 入口与页面样式
-- `src/components/`：共享 UI 壳层组件
-- `src/composables/`：页面读写状态控制逻辑
-- `src/services/`：Chrome MCP 集成与页面 I/O 抽象层
-- `src/types/`：共享类型定义
-- `openspec/changes/bootstrap-browser-extension-mcp-foundation/`：本次变更的设计、规格与任务
+## 配置说明
 
-## 验证结果
+在 popup 右上角点击“设置”可配置：
 
-本次实现已完成以下验证：
+### 基础设置
 
-- `npm run build` ✅
-- `npm run typecheck` ✅
-- popup 构建产物可正常渲染 ✅
-- 页面读取/写入成功态（通过注入 mock `chromeMcp` 桥）✅
-- 页面读取失败态（无可用运行时时的错误反馈）✅
+- `targetDomain`：允许执行自动化流程的域名
+- `candidateListItemSelector`：候选人列表项选择器
+- `candidateNameSelector`：候选人姓名选择器
+- `resumeContainerSelector`：在线简历容器选择器
+- `favoriteButtonSelector`：收藏按钮选择器
 
-## 后续扩展建议
+### 高级设置
 
-- 增加 `background`、`sidepanel` 或 `options` 等入口
-- 将真实 Chrome MCP 协议适配实现替换或补充到 `chromeMcpService`
-- 按需引入状态管理、测试与发布流水线
+- `llmApiEndpoint`：大模型接口地址（建议兼容 Chat Completions）
+- `llmApiKey`：调用密钥（保存在 `localStorage`）
+- `llmModel`：模型名
+- `llmRequestTimeoutMs`：模型请求超时
+- `perCandidateTimeoutMs`：单候选人处理超时
+
+## 验证记录
+
+- `pnpm run typecheck` ✅
+- `pnpm run build` ✅
+
+## 说明与后续
+
+- 当前默认选择器是通用兜底值，建议在真实 BOSS 页面根据 DOM 微调。
+- API Key 当前存储在 `localStorage`，请在可信环境使用；后续可迁移到更安全的存储方案。

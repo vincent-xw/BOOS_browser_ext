@@ -1,5 +1,9 @@
 import type {
+  CandidateProfile,
+  CandidateQuerySelectors,
+  CandidateSummary,
   ChromeMcpBridge,
+  FavoriteActionData,
   OperationError,
   PageReadData,
   PageWriteData,
@@ -42,6 +46,24 @@ function normalizeResult<T>(
 function getWindowBridge(): ChromeMcpBridge | null {
   if (typeof window !== 'undefined' && window.chromeMcp) {
     return window.chromeMcp;
+  }
+
+  return null;
+}
+
+function parseSelectorList(selector: string): string[] {
+  return selector
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function queryFirstBySelectorList(root: ParentNode, selector: string): Element | null {
+  for (const item of parseSelectorList(selector)) {
+    const found = root.querySelector(item);
+    if (found) {
+      return found;
+    }
   }
 
   return null;
@@ -264,5 +286,320 @@ export const chromeMcpService = {
     }
 
     return writeWithTabsScripting(payload);
+  },
+
+  async getCurrentDomain(): Promise<ServiceResult<string>> {
+    const result = await this.readPage();
+    if (!result.ok || !result.data) {
+      return buildError(
+        result.error ?? {
+          code: 'EXECUTION_FAILED',
+          message: '读取当前页面地址失败。',
+        },
+        result.provider,
+        result.mode,
+      );
+    }
+
+    try {
+      return {
+        ok: true,
+        provider: result.provider,
+        mode: result.mode,
+        data: new URL(result.data.url).host,
+      };
+    } catch {
+      return buildError(
+        {
+          code: 'EXECUTION_FAILED',
+          message: '当前页面 URL 解析失败。',
+          details: result.data.url,
+        },
+        result.provider,
+        result.mode,
+      );
+    }
+  },
+
+  async readCandidateList(
+    selectors: CandidateQuerySelectors,
+  ): Promise<ServiceResult<CandidateSummary[]>> {
+    const bridge = getWindowBridge();
+    if (bridge?.readCandidateList) {
+      try {
+        const result = await bridge.readCandidateList(selectors);
+        return normalizeResult(result, 'chrome-mcp', 'live');
+      } catch (error) {
+        return buildError(
+          {
+            code: 'EXECUTION_FAILED',
+            message: 'Chrome MCP 读取候选人列表失败。',
+            details: error instanceof Error ? error.message : String(error),
+          },
+          'chrome-mcp',
+          'live',
+        );
+      }
+    }
+
+    if (!chrome?.scripting?.executeScript) {
+      return buildError(
+        {
+          code: 'MCP_UNAVAILABLE',
+          message: '当前环境不支持候选人列表读取能力。',
+        },
+        'unavailable',
+        'fallback',
+      );
+    }
+
+    return withActiveTab<CandidateSummary[]>(async (tabId) => {
+      const [injectionResult] = await chrome.scripting.executeScript({
+        target: { tabId },
+        args: [selectors.listItemSelector, selectors.nameSelector],
+        func: (listItemSelector: string, nameSelector: string) => {
+          const listItems = Array.from(document.querySelectorAll(listItemSelector));
+
+          return listItems.map((item, index) => {
+            const nameElement = (() => {
+              const nameSelectors = nameSelector
+                .split(',')
+                .map((s) => s.trim())
+                .filter(Boolean);
+
+              for (const selector of nameSelectors) {
+                const found = item.querySelector(selector);
+                if (found) {
+                  return found;
+                }
+              }
+
+              return null;
+            })();
+
+            const name = nameElement?.textContent?.trim() || `候选人#${index + 1}`;
+            const previewText = item.textContent?.trim().replace(/\s+/g, ' ').slice(0, 180) || '';
+
+            return {
+              id: `${index}`,
+              index,
+              name,
+              previewText,
+            };
+          });
+        },
+      });
+
+      return (injectionResult.result as CandidateSummary[]) ?? [];
+    });
+  },
+
+  async openCandidateDetail(
+    candidate: CandidateSummary,
+    selectors: CandidateQuerySelectors,
+  ): Promise<ServiceResult<{ opened: boolean; message: string }>> {
+    const bridge = getWindowBridge();
+    if (bridge?.openCandidateDetail) {
+      try {
+        const result = await bridge.openCandidateDetail(candidate, selectors);
+        return normalizeResult(result, 'chrome-mcp', 'live');
+      } catch (error) {
+        return buildError(
+          {
+            code: 'EXECUTION_FAILED',
+            message: `Chrome MCP 打开候选人详情失败：${candidate.name}`,
+            details: error instanceof Error ? error.message : String(error),
+          },
+          'chrome-mcp',
+          'live',
+        );
+      }
+    }
+
+    if (!chrome?.scripting?.executeScript) {
+      return buildError(
+        {
+          code: 'MCP_UNAVAILABLE',
+          message: '当前环境不支持候选人详情打开能力。',
+        },
+        'unavailable',
+        'fallback',
+      );
+    }
+
+    return withActiveTab<{ opened: boolean; message: string }>(async (tabId) => {
+      const [injectionResult] = await chrome.scripting.executeScript({
+        target: { tabId },
+        args: [selectors.listItemSelector, candidate.index],
+        func: (listItemSelector: string, index: number) => {
+          const listItems = Array.from(document.querySelectorAll(listItemSelector));
+          const target = listItems[index] as HTMLElement | undefined;
+
+          if (!target) {
+            return {
+              opened: false,
+              message: `未找到索引为 ${index} 的候选人列表项。`,
+            };
+          }
+
+          target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          target.click();
+
+          return {
+            opened: true,
+            message: '已点击候选人列表项。',
+          };
+        },
+      });
+
+      return (injectionResult.result as { opened: boolean; message: string }) ?? {
+        opened: false,
+        message: '点击候选人列表项失败。',
+      };
+    });
+  },
+
+  async readCandidateProfile(
+    selectors: CandidateQuerySelectors,
+  ): Promise<ServiceResult<CandidateProfile>> {
+    const bridge = getWindowBridge();
+    if (bridge?.readCandidateProfile) {
+      try {
+        const result = await bridge.readCandidateProfile(selectors);
+        return normalizeResult(result, 'chrome-mcp', 'live');
+      } catch (error) {
+        return buildError(
+          {
+            code: 'EXECUTION_FAILED',
+            message: 'Chrome MCP 读取候选人在线简历失败。',
+            details: error instanceof Error ? error.message : String(error),
+          },
+          'chrome-mcp',
+          'live',
+        );
+      }
+    }
+
+    if (!chrome?.scripting?.executeScript) {
+      return buildError(
+        {
+          code: 'MCP_UNAVAILABLE',
+          message: '当前环境不支持候选人简历读取能力。',
+        },
+        'unavailable',
+        'fallback',
+      );
+    }
+
+    return withActiveTab<CandidateProfile>(async (tabId) => {
+      const [injectionResult] = await chrome.scripting.executeScript({
+        target: { tabId },
+        args: [selectors.resumeContainerSelector, selectors.nameSelector],
+        func: (resumeContainerSelector: string, nameSelector: string) => {
+          const queryFirst = (root: ParentNode, selector: string): Element | null => {
+            const selectors = selector
+              .split(',')
+              .map((item) => item.trim())
+              .filter(Boolean);
+
+            for (const one of selectors) {
+              const found = root.querySelector(one);
+              if (found) {
+                return found;
+              }
+            }
+
+            return null;
+          };
+
+          const resumeContainer = queryFirst(document, resumeContainerSelector) ?? document.body;
+          const nameElement = queryFirst(document, nameSelector);
+
+          return {
+            name: nameElement?.textContent?.trim() || '',
+            resumeText:
+              resumeContainer?.textContent?.trim().replace(/\s+/g, ' ').slice(0, 12000) || '',
+            sourceUrl: location.href,
+            timestamp: new Date().toISOString(),
+          };
+        },
+      });
+
+      return injectionResult.result as CandidateProfile;
+    });
+  },
+
+  async clickFavoriteButton(
+    selectors: CandidateQuerySelectors,
+  ): Promise<ServiceResult<FavoriteActionData>> {
+    const bridge = getWindowBridge();
+    if (bridge?.clickFavoriteButton) {
+      try {
+        const result = await bridge.clickFavoriteButton(selectors);
+        return normalizeResult(result, 'chrome-mcp', 'live');
+      } catch (error) {
+        return buildError(
+          {
+            code: 'EXECUTION_FAILED',
+            message: 'Chrome MCP 点击收藏失败。',
+            details: error instanceof Error ? error.message : String(error),
+          },
+          'chrome-mcp',
+          'live',
+        );
+      }
+    }
+
+    if (!chrome?.scripting?.executeScript) {
+      return buildError(
+        {
+          code: 'MCP_UNAVAILABLE',
+          message: '当前环境不支持收藏动作。',
+        },
+        'unavailable',
+        'fallback',
+      );
+    }
+
+    return withActiveTab<FavoriteActionData>(async (tabId) => {
+      const [injectionResult] = await chrome.scripting.executeScript({
+        target: { tabId },
+        args: [selectors.favoriteButtonSelector],
+        func: (favoriteButtonSelector: string) => {
+          const selectors = favoriteButtonSelector
+            .split(',')
+            .map((item) => item.trim())
+            .filter(Boolean);
+
+          let target: HTMLElement | null = null;
+          for (const selector of selectors) {
+            const found = document.querySelector(selector) as HTMLElement | null;
+            if (found) {
+              target = found;
+              break;
+            }
+          }
+
+          if (!target) {
+            return {
+              clicked: false,
+              message: '未找到收藏按钮。',
+              timestamp: new Date().toISOString(),
+            };
+          }
+
+          target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          target.click();
+
+          return {
+            clicked: true,
+            message: '已触发收藏按钮点击。',
+            timestamp: new Date().toISOString(),
+          };
+        },
+      });
+
+      return injectionResult.result as FavoriteActionData;
+    });
   },
 };
