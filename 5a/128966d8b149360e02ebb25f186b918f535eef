@@ -1,0 +1,87 @@
+.npmrc
+  h_4581b25f30fed0 1
+openspec/specs/extension-foundation/spec.md
+  611e9347d3f32aa5 1-35
+openspec/specs/chrome-mcp-page-io/spec.md
+  611e9347d3f32aa5 1-39
+entrypoints/popup/index.html
+  37ea44614cad24f1 1-12
+src/env.d.ts
+  37ea44614cad24f1 1-5
+.wxt/wxt.d.ts
+  37ea44614cad24f1 1-8
+tsconfig.json
+  37ea44614cad24f1 1-12
+src/services/chromeMcpService.ts
+  37ea44614cad24f1 1-268
+src/components/ExtensionAppShell.vue
+  37ea44614cad24f1 1-98
+src/composables/usePageIoController.ts
+  37ea44614cad24f1 1-145
+wxt.config.ts
+  37ea44614cad24f1 1-13
+AGENTS.md
+  37ea44614cad24f1 1-53
+.wxt/types/imports.d.ts
+  37ea44614cad24f1 1-193
+package.json
+  37ea44614cad24f1 1-26
+.wxt/types/i18n.d.ts
+  37ea44614cad24f1 1-81
+README.md
+  37ea44614cad24f1 1-45
+.wxt/tsconfig.json
+  37ea44614cad24f1 1-28
+.wxt/types/imports-module.d.ts
+  37ea44614cad24f1 1-21
+entrypoints/popup/main.ts
+  37ea44614cad24f1 1-7
+entrypoints/popup/App.vue
+  37ea44614cad24f1 1-186
+entrypoints/popup/style.scss
+  37ea44614cad24f1 1-23
+.wxt/types/paths.d.ts
+  37ea44614cad24f1 1-15
+.wxt/types/globals.d.ts
+  37ea44614cad24f1 1-15
+src/types/page-io.ts
+  37ea44614cad24f1 1-59
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "5a128966d8b149360e02ebb25f186b918f535eef",
+  "prompts": {
+    "37ea44614cad24f1": {
+      "agent_id": {
+        "tool": "github-copilot",
+        "id": "8c09788b-6291-415b-87e0-72d6a6a4ab2e",
+        "model": "copilot/auto"
+      },
+      "human_author": "xuewen.jia",
+      "messages": [],
+      "total_additions": 1593,
+      "total_deletions": 83,
+      "accepted_lines": 1312,
+      "overriden_lines": 0
+    },
+    "611e9347d3f32aa5": {
+      "agent_id": {
+        "tool": "github-copilot",
+        "id": "cc36b393-6b24-4778-b264-ce89ba2e136e",
+        "model": "copilot/auto"
+      },
+      "human_author": "xuewen.jia",
+      "messages": [],
+      "total_additions": 74,
+      "total_deletions": 0,
+      "accepted_lines": 74,
+      "overriden_lines": 0
+    }
+  },
+  "humans": {
+    "h_4581b25f30fed0": {
+      "author": "xuewen.jia"
+    }
+  }
+}
