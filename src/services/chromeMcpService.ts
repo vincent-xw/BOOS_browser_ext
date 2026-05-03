@@ -13,6 +13,13 @@ import type {
   ServiceResult,
 } from '../types/page-io';
 
+const BOSS_FALLBACK_SELECTORS: CandidateQuerySelectors = {
+  listItemSelector: 'li.card-item, .card-item',
+  nameSelector: '.name',
+  resumeContainerSelector: '#resume, canvas#resume, .resume-item, .resume-detail-wrap',
+  favoriteButtonSelector: '.like-icon-and-text, button[ka=like], .btn-like',
+};
+
 function buildError(
   error: OperationError,
   provider: ProviderKind,
@@ -58,6 +65,36 @@ function parseSelectorList(selector: string): string[] {
     .filter(Boolean);
 }
 
+function mergeSelectorLists(...selectors: string[]): string {
+  const merged = new Set<string>();
+
+  for (const selector of selectors) {
+    for (const item of parseSelectorList(selector)) {
+      merged.add(item);
+    }
+  }
+
+  return Array.from(merged).join(', ');
+}
+
+function withBossFallbackSelectors(selectors: CandidateQuerySelectors): CandidateQuerySelectors {
+  return {
+    listItemSelector: mergeSelectorLists(
+      selectors.listItemSelector,
+      BOSS_FALLBACK_SELECTORS.listItemSelector,
+    ),
+    nameSelector: mergeSelectorLists(selectors.nameSelector, BOSS_FALLBACK_SELECTORS.nameSelector),
+    resumeContainerSelector: mergeSelectorLists(
+      selectors.resumeContainerSelector,
+      BOSS_FALLBACK_SELECTORS.resumeContainerSelector,
+    ),
+    favoriteButtonSelector: mergeSelectorLists(
+      selectors.favoriteButtonSelector,
+      BOSS_FALLBACK_SELECTORS.favoriteButtonSelector,
+    ),
+  };
+}
+
 function queryFirstBySelectorList(root: ParentNode, selector: string): Element | null {
   for (const item of parseSelectorList(selector)) {
     const found = root.querySelector(item);
@@ -67,6 +104,28 @@ function queryFirstBySelectorList(root: ParentNode, selector: string): Element |
   }
 
   return null;
+}
+
+function pickBestInjectionResult<T>(
+  results: Array<chrome.scripting.InjectionResult<T>>,
+  score: (data: T) => number,
+): T | undefined {
+  let bestResult: T | undefined;
+  let bestScore = Number.NEGATIVE_INFINITY;
+
+  for (const item of results) {
+    if (typeof item.result === 'undefined') {
+      continue;
+    }
+
+    const currentScore = score(item.result);
+    if (currentScore > bestScore) {
+      bestScore = currentScore;
+      bestResult = item.result;
+    }
+  }
+
+  return bestResult;
 }
 
 async function withActiveTab<T>(
@@ -129,8 +188,8 @@ async function readWithTabsScripting(): Promise<ServiceResult<PageReadData>> {
   }
 
   return withActiveTab<PageReadData>(async (tabId) => {
-    const [injectionResult] = await chrome.scripting.executeScript({
-      target: { tabId },
+    const injectionResults = await chrome.scripting.executeScript({
+      target: { tabId, allFrames: true },
       func: () => {
         const activeElement = document.activeElement as HTMLElement | null;
         const selectionText = window.getSelection?.()?.toString() ?? '';
@@ -147,7 +206,13 @@ async function readWithTabsScripting(): Promise<ServiceResult<PageReadData>> {
       },
     });
 
-    return injectionResult.result as PageReadData;
+    const bestResult = pickBestInjectionResult(injectionResults, (data) => {
+      const bodyScore = data.bodyPreview?.length ?? 0;
+      const selectionScore = data.selectionText?.length ?? 0;
+      return bodyScore + selectionScore;
+    });
+
+    return (bestResult ?? injectionResults[0]?.result) as PageReadData;
   });
 }
 
@@ -177,8 +242,8 @@ async function writeWithTabsScripting(
   }
 
   return withActiveTab<PageWriteData>(async (tabId) => {
-    const [injectionResult] = await chrome.scripting.executeScript({
-      target: { tabId },
+    const injectionResults = await chrome.scripting.executeScript({
+      target: { tabId, allFrames: true },
       args: [payload.text],
       func: (text: string) => {
         const activeElement = document.activeElement as HTMLElement | null;
@@ -237,7 +302,11 @@ async function writeWithTabsScripting(
       },
     });
 
-    return injectionResult.result as PageWriteData;
+    const bestResult = pickBestInjectionResult(injectionResults, (data) =>
+      data.target === 'active-element' ? 2 : 1,
+    );
+
+    return (bestResult ?? injectionResults[0]?.result) as PageWriteData;
   });
 }
 
@@ -324,10 +393,11 @@ export const chromeMcpService = {
   async readCandidateList(
     selectors: CandidateQuerySelectors,
   ): Promise<ServiceResult<CandidateSummary[]>> {
+    const effectiveSelectors = withBossFallbackSelectors(selectors);
     const bridge = getWindowBridge();
     if (bridge?.readCandidateList) {
       try {
-        const result = await bridge.readCandidateList(selectors);
+        const result = await bridge.readCandidateList(effectiveSelectors);
         return normalizeResult(result, 'chrome-mcp', 'live');
       } catch (error) {
         return buildError(
@@ -354,9 +424,9 @@ export const chromeMcpService = {
     }
 
     return withActiveTab<CandidateSummary[]>(async (tabId) => {
-      const [injectionResult] = await chrome.scripting.executeScript({
-        target: { tabId },
-        args: [selectors.listItemSelector, selectors.nameSelector],
+      const injectionResults = await chrome.scripting.executeScript({
+        target: { tabId, allFrames: true },
+        args: [effectiveSelectors.listItemSelector, effectiveSelectors.nameSelector],
         func: (listItemSelector: string, nameSelector: string) => {
           const listItems = Array.from(document.querySelectorAll(listItemSelector));
 
@@ -390,7 +460,9 @@ export const chromeMcpService = {
         },
       });
 
-      return (injectionResult.result as CandidateSummary[]) ?? [];
+      const bestResult = pickBestInjectionResult(injectionResults, (data) => data.length);
+
+      return bestResult ?? [];
     });
   },
 
@@ -398,10 +470,11 @@ export const chromeMcpService = {
     candidate: CandidateSummary,
     selectors: CandidateQuerySelectors,
   ): Promise<ServiceResult<{ opened: boolean; message: string }>> {
+    const effectiveSelectors = withBossFallbackSelectors(selectors);
     const bridge = getWindowBridge();
     if (bridge?.openCandidateDetail) {
       try {
-        const result = await bridge.openCandidateDetail(candidate, selectors);
+        const result = await bridge.openCandidateDetail(candidate, effectiveSelectors);
         return normalizeResult(result, 'chrome-mcp', 'live');
       } catch (error) {
         return buildError(
@@ -428,9 +501,9 @@ export const chromeMcpService = {
     }
 
     return withActiveTab<{ opened: boolean; message: string }>(async (tabId) => {
-      const [injectionResult] = await chrome.scripting.executeScript({
-        target: { tabId },
-        args: [selectors.listItemSelector, candidate.index],
+      const injectionResults = await chrome.scripting.executeScript({
+        target: { tabId, allFrames: true },
+        args: [effectiveSelectors.listItemSelector, candidate.index],
         func: (listItemSelector: string, index: number) => {
           const listItems = Array.from(document.querySelectorAll(listItemSelector));
           const target = listItems[index] as HTMLElement | undefined;
@@ -452,7 +525,11 @@ export const chromeMcpService = {
         },
       });
 
-      return (injectionResult.result as { opened: boolean; message: string }) ?? {
+      const bestResult = pickBestInjectionResult(injectionResults, (data) =>
+        data.opened ? 1 : 0,
+      );
+
+      return bestResult ?? {
         opened: false,
         message: '点击候选人列表项失败。',
       };
@@ -462,10 +539,11 @@ export const chromeMcpService = {
   async readCandidateProfile(
     selectors: CandidateQuerySelectors,
   ): Promise<ServiceResult<CandidateProfile>> {
+    const effectiveSelectors = withBossFallbackSelectors(selectors);
     const bridge = getWindowBridge();
     if (bridge?.readCandidateProfile) {
       try {
-        const result = await bridge.readCandidateProfile(selectors);
+        const result = await bridge.readCandidateProfile(effectiveSelectors);
         return normalizeResult(result, 'chrome-mcp', 'live');
       } catch (error) {
         return buildError(
@@ -492,9 +570,9 @@ export const chromeMcpService = {
     }
 
     return withActiveTab<CandidateProfile>(async (tabId) => {
-      const [injectionResult] = await chrome.scripting.executeScript({
-        target: { tabId },
-        args: [selectors.resumeContainerSelector, selectors.nameSelector],
+      const injectionResults = await chrome.scripting.executeScript({
+        target: { tabId, allFrames: true },
+        args: [effectiveSelectors.resumeContainerSelector, effectiveSelectors.nameSelector],
         func: (resumeContainerSelector: string, nameSelector: string) => {
           const queryFirst = (root: ParentNode, selector: string): Element | null => {
             const selectors = selector
@@ -525,17 +603,24 @@ export const chromeMcpService = {
         },
       });
 
-      return injectionResult.result as CandidateProfile;
+      const bestResult = pickBestInjectionResult(injectionResults, (data) => {
+        const textScore = data.resumeText?.length ?? 0;
+        const nameScore = data.name?.length ?? 0;
+        return textScore + nameScore;
+      });
+
+      return (bestResult ?? injectionResults[0]?.result) as CandidateProfile;
     });
   },
 
   async clickFavoriteButton(
     selectors: CandidateQuerySelectors,
   ): Promise<ServiceResult<FavoriteActionData>> {
+    const effectiveSelectors = withBossFallbackSelectors(selectors);
     const bridge = getWindowBridge();
     if (bridge?.clickFavoriteButton) {
       try {
-        const result = await bridge.clickFavoriteButton(selectors);
+        const result = await bridge.clickFavoriteButton(effectiveSelectors);
         return normalizeResult(result, 'chrome-mcp', 'live');
       } catch (error) {
         return buildError(
@@ -562,9 +647,9 @@ export const chromeMcpService = {
     }
 
     return withActiveTab<FavoriteActionData>(async (tabId) => {
-      const [injectionResult] = await chrome.scripting.executeScript({
-        target: { tabId },
-        args: [selectors.favoriteButtonSelector],
+      const injectionResults = await chrome.scripting.executeScript({
+        target: { tabId, allFrames: true },
+        args: [effectiveSelectors.favoriteButtonSelector],
         func: (favoriteButtonSelector: string) => {
           const selectors = favoriteButtonSelector
             .split(',')
@@ -599,7 +684,11 @@ export const chromeMcpService = {
         },
       });
 
-      return injectionResult.result as FavoriteActionData;
+      const bestResult = pickBestInjectionResult(injectionResults, (data) =>
+        data.clicked ? 1 : 0,
+      );
+
+      return (bestResult ?? injectionResults[0]?.result) as FavoriteActionData;
     });
   },
 };

@@ -14,6 +14,31 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+function normalizeSelectorToken(token: string, preferred: 'class' | 'id'): string {
+  const value = token.trim();
+  if (!value) {
+    return value;
+  }
+
+  if (/^[.#\[]/.test(value)) {
+    return value;
+  }
+
+  if (/[\s>+~:*]/.test(value)) {
+    return value;
+  }
+
+  return preferred === 'id' ? `#${value}` : `.${value}`;
+}
+
+function normalizeSelectorList(value: string, preferred: 'class' | 'id'): string {
+  return value
+    .split(',')
+    .map((item) => normalizeSelectorToken(item, preferred))
+    .filter(Boolean)
+    .join(', ');
+}
+
 export function validateSettings(raw: unknown): SettingsValidationResult {
   const issues: string[] = [];
   const normalized = cloneDefaults();
@@ -38,13 +63,19 @@ export function validateSettings(raw: unknown): SettingsValidationResult {
     typeof basic.candidateListItemSelector === 'string' &&
     basic.candidateListItemSelector.trim()
   ) {
-    normalized.basic.candidateListItemSelector = basic.candidateListItemSelector.trim();
+    normalized.basic.candidateListItemSelector = normalizeSelectorList(
+      basic.candidateListItemSelector.trim(),
+      'class',
+    );
   } else {
     issues.push('候选人列表选择器缺失，已回退默认值。');
   }
 
   if (typeof basic.candidateNameSelector === 'string' && basic.candidateNameSelector.trim()) {
-    normalized.basic.candidateNameSelector = basic.candidateNameSelector.trim();
+    normalized.basic.candidateNameSelector = normalizeSelectorList(
+      basic.candidateNameSelector.trim(),
+      'class',
+    );
   } else {
     issues.push('候选人姓名选择器缺失，已回退默认值。');
   }
@@ -53,7 +84,10 @@ export function validateSettings(raw: unknown): SettingsValidationResult {
     typeof basic.resumeContainerSelector === 'string' &&
     basic.resumeContainerSelector.trim()
   ) {
-    normalized.basic.resumeContainerSelector = basic.resumeContainerSelector.trim();
+    normalized.basic.resumeContainerSelector = normalizeSelectorList(
+      basic.resumeContainerSelector.trim(),
+      'id',
+    );
   } else {
     issues.push('简历容器选择器缺失，已回退默认值。');
   }
@@ -62,7 +96,10 @@ export function validateSettings(raw: unknown): SettingsValidationResult {
     typeof basic.favoriteButtonSelector === 'string' &&
     basic.favoriteButtonSelector.trim()
   ) {
-    normalized.basic.favoriteButtonSelector = basic.favoriteButtonSelector.trim();
+    normalized.basic.favoriteButtonSelector = normalizeSelectorList(
+      basic.favoriteButtonSelector.trim(),
+      'class',
+    );
   } else {
     issues.push('收藏按钮选择器缺失，已回退默认值。');
   }

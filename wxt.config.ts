@@ -10,7 +10,8 @@ export default defineConfig({
   manifest: {
     name: 'BOOS Browser AI Extension',
     description: '基于 Vue 3 与 Element Plus 的浏览器插件基础架构。',
-    permissions: ['activeTab', 'scripting', 'tabs'],
+    permissions: ['activeTab', 'scripting', 'tabs', 'sidePanel'],
+    host_permissions: ['https://*.zhipin.com/*'],
     action: {
       default_title: 'BOOS Browser AI Extension',
     },

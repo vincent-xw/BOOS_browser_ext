@@ -29,7 +29,7 @@ export interface SettingsValidationResult {
 export const DEFAULT_SETTINGS: AppSettings = {
   basic: {
     targetDomain: 'www.zhipin.com',
-    candidateListItemSelector: '.job-card-wrapper, .candidate-item, .geek-item',
+    candidateListItemSelector: 'li.card-item, .card-item, .job-card-wrapper, .candidate-item, .geek-item',
     candidateNameSelector: '.name, .geek-name, .candidate-name',
     candidateOpenMode: 'click',
     resumeContainerSelector:

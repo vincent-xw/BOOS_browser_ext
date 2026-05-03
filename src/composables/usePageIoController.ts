@@ -7,6 +7,7 @@ import type {
   CandidateSummary,
   OperationError,
   OperationState,
+  PageCandidateOverview,
   ProviderKind,
   ProviderMode,
   WorkflowProgress,
@@ -21,6 +22,18 @@ function createInitialProgress(): WorkflowProgress {
     failed: 0,
     currentCandidateName: '',
     records: [],
+  };
+}
+
+function createInitialCandidateOverview(): PageCandidateOverview {
+  return {
+    total: 0,
+    loadedAt: '',
+    changeState: 'idle',
+    addedCount: 0,
+    removedCount: 0,
+    sampleNames: [],
+    changeDescription: '尚未读取当前页面候选人数据。',
   };
 }
 
@@ -53,22 +66,116 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T
   return Promise.race([promise, timeoutPromise]);
 }
 
+function buildCandidateSnapshotSignature(candidates: CandidateSummary[]): string {
+  return candidates
+    .map((candidate) => `${candidate.index}|${candidate.name}|${candidate.previewText}`)
+    .join('\n');
+}
+
+function createCandidateLookup(candidates: CandidateSummary[]): Set<string> {
+  return new Set(candidates.map((candidate) => `${candidate.name}|${candidate.previewText}`));
+}
+
+function buildCandidateOverview(
+  candidates: CandidateSummary[],
+  previousCandidates: CandidateSummary[] | null,
+): PageCandidateOverview {
+  const sampleNames = candidates.slice(0, 3).map((candidate) => candidate.name);
+
+  if (!previousCandidates) {
+    return {
+      total: candidates.length,
+      loadedAt: new Date().toISOString(),
+      changeState: 'stable',
+      addedCount: 0,
+      removedCount: 0,
+      sampleNames,
+      changeDescription: candidates.length
+        ? '已读取当前页面候选人数据。'
+        : '当前页面未读取到候选人数据。',
+    };
+  }
+
+  const previousSignature = buildCandidateSnapshotSignature(previousCandidates);
+  const currentSignature = buildCandidateSnapshotSignature(candidates);
+  if (previousSignature === currentSignature) {
+    return {
+      total: candidates.length,
+      loadedAt: new Date().toISOString(),
+      changeState: 'stable',
+      addedCount: 0,
+      removedCount: 0,
+      sampleNames,
+      changeDescription: '页面候选人数据无变化。',
+    };
+  }
+
+  const previousLookup = createCandidateLookup(previousCandidates);
+  const currentLookup = createCandidateLookup(candidates);
+  let addedCount = 0;
+  let removedCount = 0;
+
+  for (const item of currentLookup) {
+    if (!previousLookup.has(item)) {
+      addedCount += 1;
+    }
+  }
+
+  for (const item of previousLookup) {
+    if (!currentLookup.has(item)) {
+      removedCount += 1;
+    }
+  }
+
+  const changeDescription =
+    addedCount || removedCount
+      ? `页面候选人数据已变化：新增 ${addedCount}，减少 ${removedCount}。`
+      : '页面候选人数据已变化，可能是排序或候选人内容发生更新。';
+
+  return {
+    total: candidates.length,
+    loadedAt: new Date().toISOString(),
+    changeState: 'changed',
+    addedCount,
+    removedCount,
+    sampleNames,
+    changeDescription,
+  };
+}
+
 export function usePageIoController() {
   const loadedSettings = settingsService.load();
 
   const runState = ref<OperationState>('idle');
   const runError = ref<OperationError | null>(null);
+  const candidateOverviewError = ref<OperationError | null>(null);
   const promptText = ref('请根据岗位匹配度、稳定性、沟通能力判断是否值得收藏。');
   const progress = ref<WorkflowProgress>(createInitialProgress());
+  const candidateOverview = ref<PageCandidateOverview>(createInitialCandidateOverview());
+  const pageCandidates = ref<CandidateSummary[]>([]);
   const provider = ref<ProviderKind>('unavailable');
   const mode = ref<ProviderMode>('fallback');
   const domainStatus = ref<'unknown' | 'matched' | 'mismatched'>('unknown');
   const currentDomain = ref('');
   const settings = ref<AppSettings>(loadedSettings.normalized);
   const settingsWarnings = ref<string[]>(loadedSettings.issues);
+  const isRefreshingCandidateOverview = ref(false);
+  const lastCandidateSnapshot = ref<CandidateSummary[] | null>(null);
 
   const isBusy = computed(() => runState.value === 'running');
   const overallState = computed<OperationState>(() => runState.value);
+  const runStateLabel = computed(() => {
+    switch (runState.value) {
+      case 'running':
+        return '执行中';
+      case 'succeeded':
+        return '已完成';
+      case 'failed':
+        return '失败';
+      default:
+        return '待执行';
+    }
+  });
 
   const providerLabel = computed(() => {
     switch (provider.value) {
@@ -82,6 +189,19 @@ export function usePageIoController() {
   });
 
   const modeLabel = computed(() => (mode.value === 'live' ? '实时模式' : '回退模式'));
+
+  function getCandidateStatusLabel(status: WorkflowProgress['records'][number]['status']) {
+    switch (status) {
+      case 'favorited':
+        return '已收藏';
+      case 'skipped':
+        return '已跳过';
+      case 'failed':
+        return '失败';
+      default:
+        return status;
+    }
+  }
 
   const overallMessage = computed(() => {
     switch (overallState.value) {
@@ -106,6 +226,17 @@ export function usePageIoController() {
         return 'error';
       default:
         return 'warning';
+    }
+  });
+
+  const candidateOverviewLabel = computed(() => {
+    switch (candidateOverview.value.changeState) {
+      case 'changed':
+        return '已发现变更';
+      case 'stable':
+        return '已同步';
+      default:
+        return '待读取';
     }
   });
 
@@ -145,6 +276,51 @@ export function usePageIoController() {
     const matched = result.data === settings.value.basic.targetDomain;
     domainStatus.value = matched ? 'matched' : 'mismatched';
     return matched;
+  }
+
+  async function refreshCandidateOverview() {
+    if (runState.value === 'running') {
+      return;
+    }
+
+    isRefreshingCandidateOverview.value = true;
+    candidateOverviewError.value = null;
+
+    try {
+      const matched = await checkDomainMatch();
+      if (!matched) {
+        candidateOverview.value = {
+          ...createInitialCandidateOverview(),
+          changeDescription: '当前站点不匹配，无法读取候选人数据。',
+        };
+        return;
+      }
+
+      const selectors = createSelectors(settings.value);
+      const listResult = await chromeMcpService.readCandidateList(selectors);
+      provider.value = listResult.provider;
+      mode.value = listResult.mode;
+
+      if (!listResult.ok || !listResult.data) {
+        candidateOverviewError.value = listResult.error ?? {
+          code: 'EXECUTION_FAILED',
+          message: '读取当前页面候选人数据失败。',
+        };
+        candidateOverview.value = {
+          ...candidateOverview.value,
+          loadedAt: new Date().toISOString(),
+          changeDescription: candidateOverviewError.value.message,
+        };
+        return;
+      }
+
+      const candidates = listResult.data;
+      pageCandidates.value = candidates;
+      candidateOverview.value = buildCandidateOverview(candidates, lastCandidateSnapshot.value);
+      lastCandidateSnapshot.value = candidates;
+    } finally {
+      isRefreshingCandidateOverview.value = false;
+    }
   }
 
   function appendRecord(record: WorkflowProgress['records'][number]) {
@@ -283,6 +459,9 @@ export function usePageIoController() {
     }
 
     progress.value.total = listResult.data.length;
+    pageCandidates.value = listResult.data;
+    candidateOverview.value = buildCandidateOverview(listResult.data, lastCandidateSnapshot.value);
+    lastCandidateSnapshot.value = listResult.data;
 
     for (const candidate of listResult.data) {
       try {
@@ -309,11 +488,18 @@ export function usePageIoController() {
         message: '流程已完成，但存在失败候选人，请查看处理记录。',
       };
     }
+
+    await refreshCandidateOverview();
   }
 
   return {
     runState,
+    runStateLabel,
     runError,
+    candidateOverview,
+    pageCandidates,
+    candidateOverviewError,
+    candidateOverviewLabel,
     promptText,
     progress,
     settings,
@@ -321,14 +507,17 @@ export function usePageIoController() {
     domainStatus,
     currentDomain,
     isBusy,
+    isRefreshingCandidateOverview,
     overallState,
     overallMessage,
     overallMessageType,
     providerLabel,
     modeLabel,
+    getCandidateStatusLabel,
     loadSettings,
     saveSettings,
     checkDomainMatch,
+    refreshCandidateOverview,
     handleRunWorkflow,
   };
 }

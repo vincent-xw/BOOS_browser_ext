@@ -52,22 +52,25 @@ function onSave() {
           <el-form-item label="候选人列表项选择器">
             <el-input
               v-model="form.basic.candidateListItemSelector"
-              placeholder="例如：.candidate-item"
+              placeholder="例如：li.card-item 或 .card-item（也支持直接填 card-item）"
             />
           </el-form-item>
           <el-form-item label="候选人姓名选择器">
-            <el-input v-model="form.basic.candidateNameSelector" placeholder="例如：.name" />
+            <el-input
+              v-model="form.basic.candidateNameSelector"
+              placeholder="例如：.name（也支持直接填 name）"
+            />
           </el-form-item>
           <el-form-item label="在线简历容器选择器">
             <el-input
               v-model="form.basic.resumeContainerSelector"
-              placeholder="例如：.resume-detail-wrap"
+              placeholder="例如：#resume（也支持直接填 resume）"
             />
           </el-form-item>
           <el-form-item label="收藏按钮选择器">
             <el-input
               v-model="form.basic.favoriteButtonSelector"
-              placeholder="例如：.btn-collect"
+              placeholder="例如：.like-icon-and-text（也支持直接填 like-icon-and-text）"
             />
           </el-form-item>
         </el-form>

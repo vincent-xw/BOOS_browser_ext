@@ -45,6 +45,16 @@ export interface CandidateSummary {
   previewText: string;
 }
 
+export interface PageCandidateOverview {
+  total: number;
+  loadedAt: string;
+  changeState: 'idle' | 'stable' | 'changed';
+  addedCount: number;
+  removedCount: number;
+  sampleNames: string[];
+  changeDescription: string;
+}
+
 export interface CandidateProfile {
   name: string;
   resumeText: string;

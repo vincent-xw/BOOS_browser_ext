@@ -26,10 +26,6 @@ withDefaults(
           </div>
           <div class="extension-shell__meta">
             <slot name="header-actions" />
-            <div class="extension-shell__tags">
-              <el-tag type="primary" effect="light">{{ providerLabel }}</el-tag>
-              <el-tag type="success" effect="plain">{{ modeLabel }}</el-tag>
-            </div>
           </div>
         </div>
       </template>
@@ -88,16 +84,9 @@ p {
   line-height: 1.6;
 }
 
-.extension-shell__tags {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
 .extension-shell__meta {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: flex-end;
   gap: 8px;
 }
