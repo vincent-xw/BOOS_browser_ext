@@ -1,0 +1,41 @@
+openspec/changes/cdp-real-interaction-agent-kit/design.md
+  s_3a7e3f0262fa25::t_8741b65b8506f4 1-157
+openspec/changes/cdp-real-interaction-agent-kit/specs/chrome-mcp-page-io/spec.md
+  s_3a7e3f0262fa25::t_58dc96648bf6b7 1-83
+openspec/changes/cdp-real-interaction-agent-kit/proposal.md
+  s_3a7e3f0262fa25::t_c60cf0b3d94bf9 1-66
+openspec/changes/cdp-real-interaction-agent-kit/specs/agent-kit-runtime-completion/spec.md
+  s_3a7e3f0262fa25::t_2d6ab1110705d2 1-100
+openspec/changes/cdp-real-interaction-agent-kit/specs/agent-bff-service/spec.md
+  s_3a7e3f0262fa25::t_2391ba3a5c18e8 1-67
+openspec/changes/cdp-real-interaction-agent-kit/specs/dom-locate-and-verify/spec.md
+  s_3a7e3f0262fa25::t_4600a6e83d7aa8 1-94
+openspec/changes/cdp-real-interaction-agent-kit/specs/cdp-real-interaction/spec.md
+  s_3a7e3f0262fa25::t_06eb2d86e54a93 1-98
+openspec/changes/cdp-real-interaction-agent-kit/specs/extension-settings-management/spec.md
+  s_3a7e3f0262fa25::t_cdc34fcc36bd83 1-69
+openspec/changes/cdp-real-interaction-agent-kit/specs/agent-tool-host/spec.md
+  s_3a7e3f0262fa25::t_a795a93a7b0e7e 1-94
+openspec/changes/cdp-real-interaction-agent-kit/specs/extension-foundation/spec.md
+  s_3a7e3f0262fa25::t_b7462d12addc5e 1-59
+openspec/changes/cdp-real-interaction-agent-kit/tasks.md
+  s_3a7e3f0262fa25::t_df75593628ca3b 1-169
+openspec/changes/cdp-real-interaction-agent-kit/.openspec.yaml
+  s_3a7e3f0262fa25::t_73eabd95a62a55 1-2
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "c37ab3835f69208354327a61fd25158496e34b5b",
+  "prompts": {},
+  "sessions": {
+    "s_3a7e3f0262fa25": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "514fcb97-bb93-4c67-b3b5-9be9dfa76848",
+        "model": "auto"
+      },
+      "human_author": "xuewen.jia <xuewen.jia@ly.com>"
+    }
+  }
+}
