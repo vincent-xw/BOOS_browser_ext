@@ -314,7 +314,49 @@ export default defineBackground(() => {
     try {
       await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, files: ['content-scripts/content.js'] });
     } catch (error) {
-      throw new RoutedError('CONTENT_UNAVAILABLE', '页面脚本未就绪且注入失败，请刷新目标页面后重试。', errorText(error));
+      // 最常见的注入失败原因是「没有该页面的 host 权限」—— 这跟白名单无关：
+      // 白名单只影响写操作，而注入是读取/快照/定位都需要的。没有权限时 executeScript
+      // 抛 "Cannot access contents of the page"，必须把这个跟真正需要刷新的情况区分开，
+      // 否则用户会反复刷新却毫无帮助。
+      const detail = errorText(error)
+      const url = await currentTabUrl(tabId)
+      if (url && !(await hasHostPermission(url))) {
+        throw new RoutedError(
+          'HOST_PERMISSION_MISSING',
+          `没有 ${hostOf(url)} 的访问权限，无法注入页面脚本。请先在设置中添加该域名并授权。`,
+          detail,
+        )
+      }
+      throw new RoutedError('CONTENT_UNAVAILABLE', '页面脚本未就绪且注入失败，请刷新目标页面后重试。', detail)
+    }
+  }
+
+  /** 读取标签页当前 URL；拿不到时返回 undefined。 */
+  async function currentTabUrl(tabId: number): Promise<string | undefined> {
+    try {
+      return (await chrome.tabs.get(tabId))?.url
+    } catch {
+      return undefined
+    }
+  }
+
+  /** 判断扩展是否有某 URL 的 host 权限。权限不足时 executeScript 会失败。 */
+  async function hasHostPermission(url: string): Promise<boolean> {
+    try {
+      // 需要把 URL 转成 match pattern（http/https 后接域名）。
+      const parsed = new URL(url)
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false
+      return await chrome.permissions.contains({ origins: [`*://${parsed.hostname}/*`] })
+    } catch {
+      return false
+    }
+  }
+
+  function hostOf(url: string): string {
+    try {
+      return new URL(url).hostname
+    } catch {
+      return url
     }
   }
 

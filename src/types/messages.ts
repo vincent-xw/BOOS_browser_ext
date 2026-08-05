@@ -82,6 +82,8 @@ export type MessageErrorCode =
   | 'NOT_FOUND'
   /** 目标页面不在用户配置的白名单内，写操作被拒。 */
   | 'URL_NOT_ALLOWED'
+  /** 没有目标页面的 host 权限，页面脚本无法注入。 */
+  | 'HOST_PERMISSION_MISSING'
   | 'TIMEOUT';
 
 export type { ElementLocator, LocateResult, ObservedRequest, VerifyRequest, VerifyResult };
