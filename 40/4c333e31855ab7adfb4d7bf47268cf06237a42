@@ -1,0 +1,24 @@
+src/types/page-io.ts
+  s_3a7e3f0262fa25::t_2a8d1595987f60 3-8,21-25
+  s_3a7e3f0262fa25::t_253b5ee6c3a6e8 107-113
+src/agent/stepLoop.test.ts
+  s_3a7e3f0262fa25::t_0ebea39dbb8434 11
+openspec/changes/cdp-real-interaction-agent-kit/tasks.md
+  s_3a7e3f0262fa25::t_8ac18ca2262127 126-133
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "404c333e31855ab7adfb4d7bf47268cf06237a42",
+  "prompts": {},
+  "sessions": {
+    "s_3a7e3f0262fa25": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "514fcb97-bb93-4c67-b3b5-9be9dfa76848",
+        "model": "auto"
+      },
+      "human_author": "xuewen.jia <xuewen.jia@ly.com>"
+    }
+  }
+}
