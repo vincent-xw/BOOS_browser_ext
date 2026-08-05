@@ -1,0 +1,31 @@
+AGENTS.md
+  s_3a7e3f0262fa25::t_956baa295b9ca7 42
+src/agent/agentClient.test.ts
+  s_3a7e3f0262fa25::t_3cff34322963fd 53,67-68,73,104,111,186,190,198,209,220,234
+src/agent/toolExecutor.test.ts
+  s_3a7e3f0262fa25::t_3cff34322963fd 20-28,33-34,45,48,72,80,87,94,101,108,116,122,129,135,141,147,153,173,180,186,193,200,210,223,229,235,245
+src/agent/approvalGate.test.ts
+  s_3a7e3f0262fa25::t_3cff34322963fd 41,53,60,66,73-74,83-85,92-94,100,102,111,116,123,127,134,138,146,153-154,158,162,166,172-173,177,185-186
+src/types/cdp.ts
+  s_3a7e3f0262fa25::t_956baa295b9ca7 12,26
+src/agent/toolExecutor.ts
+  s_3a7e3f0262fa25::t_3cff34322963fd 24-32,37-41,77,103,164,167,174,180,194,207,220,231,243,246
+src/agent/approvalGate.ts
+  s_3a7e3f0262fa25::t_3cff34322963fd 76,78,83,85
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "b8ae8bd4713ac64d634f70cc285a6f2b61c26119",
+  "prompts": {},
+  "sessions": {
+    "s_3a7e3f0262fa25": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "514fcb97-bb93-4c67-b3b5-9be9dfa76848",
+        "model": "auto"
+      },
+      "human_author": "xuewen.jia <xuewen.jia@ly.com>"
+    }
+  }
+}
