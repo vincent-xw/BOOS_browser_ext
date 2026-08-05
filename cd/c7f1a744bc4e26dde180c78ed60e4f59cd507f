@@ -1,0 +1,37 @@
+src/agent/agentClient.ts
+  s_3a7e3f0262fa25::t_1b1511f120d249 1-170
+src/agent/stepLoop.ts
+  s_3a7e3f0262fa25::t_a868ce447302ee 1-234
+src/agent/toolExecutor.test.ts
+  s_3a7e3f0262fa25::t_ecae213ce7345d 1-141
+src/agent/agentClient.test.ts
+  s_3a7e3f0262fa25::t_3a103cdbf07441 1-179
+openspec/changes/cdp-real-interaction-agent-kit/poc-notes.md
+  s_3a7e3f0262fa25::t_18c41b4f89d729 1-79
+openspec/changes/cdp-real-interaction-agent-kit/tasks.md
+  s_3a7e3f0262fa25::t_a9d717a69166fe 103-110,114-117,120
+src/agent/toolExecutor.ts
+  s_3a7e3f0262fa25::t_0cd342e406be50 224
+  s_3a7e3f0262fa25::t_321a33b41e0bd1 1-2
+  s_3a7e3f0262fa25::t_bc3d9a3cccd048 184-198
+  s_3a7e3f0262fa25::t_9d9240432fa5b3 110,115
+  s_3a7e3f0262fa25::t_942b01678f377e 3-109,111-114,116-183,199-223,225-237
+src/agent/stepLoop.test.ts
+  s_3a7e3f0262fa25::t_86852c3a06e891 1-187
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "cdc7f1a744bc4e26dde180c78ed60e4f59cd507f",
+  "prompts": {},
+  "sessions": {
+    "s_3a7e3f0262fa25": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "514fcb97-bb93-4c67-b3b5-9be9dfa76848",
+        "model": "auto"
+      },
+      "human_author": "xuewen.jia <xuewen.jia@ly.com>"
+    }
+  }
+}
