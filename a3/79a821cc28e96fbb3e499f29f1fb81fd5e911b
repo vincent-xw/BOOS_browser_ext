@@ -1,0 +1,74 @@
+src/services/domLocator.ts
+  s_3a7e3f0262fa25::t_af75e6c0d880b9 1-334
+.wxt/types/paths.d.ts
+  s_3a7e3f0262fa25::t_5e3d7b0b021bb8 9
+README.md
+  s_3a7e3f0262fa25::t_63832c42f53222 28-44
+src/services/cdpSessionManager.ts
+  s_3a7e3f0262fa25::t_679199d605cc1f 1-347
+src/services/diagnosticService.ts
+  s_3a7e3f0262fa25::t_d160baacec493a 6-7
+  s_3a7e3f0262fa25::t_a41ca0df3c57b7 15-21
+  s_3a7e3f0262fa25::t_a57950c16930db 126-170,179-182,198-207,218
+  s_3a7e3f0262fa25::t_4079f1b45d71af 261-270
+src/services/domLocator.test.ts
+  s_3a7e3f0262fa25::t_a3c53c7ea2fa36 1-49
+src/services/frameAggregator.test.ts
+  s_3a7e3f0262fa25::t_50c4df99ef310e 1-103
+entrypoints/background.ts
+  s_3a7e3f0262fa25::t_ff72e4b3574c24 5,7-8
+  s_3a7e3f0262fa25::t_4d8150fc692210 203,205-247
+  s_3a7e3f0262fa25::t_a603273e5bb024 4
+  s_3a7e3f0262fa25::t_032eb9015ee493 113-125,127-132
+  s_3a7e3f0262fa25::t_4747ba5af9bc73 289
+  s_3a7e3f0262fa25::t_ba3a364c9dd6a8 3,6,9,19,21,23-25,27-76,78-81,83-104,107-112,126,133-143,148-149,152-167,169,171-196,198-201,248-266,268-270,272-274,279-280,283,285-288,290-312
+openspec/changes/cdp-real-interaction-agent-kit/tasks.md
+  s_3a7e3f0262fa25::t_4440d1d07e88d3 43-45,50-53,57-63,67-73,78-86,90-97
+  s_3a7e3f0262fa25::t_6b3e5b7a044d3c 39
+  s_3a7e3f0262fa25::t_7a3d403f885ebd 5-19
+  s_3a7e3f0262fa25::t_0c674def6ea3ef 23-33,37-38
+  s_3a7e3f0262fa25::t_d93835cf9bf496 98-99
+src/services/coordinates.ts
+  s_3a7e3f0262fa25::t_3556c38ac409ae 1-69
+src/types/messages.ts
+  s_3a7e3f0262fa25::t_59b86d7d80d0f0 80
+  s_3a7e3f0262fa25::t_c077eca47eb4c9 1-7,9-79
+  s_3a7e3f0262fa25::t_fe25d82d841241 8
+src/services/coordinates.test.ts
+  s_3a7e3f0262fa25::t_db87c90700d12b 1-132
+entrypoints/content.ts
+  s_3a7e3f0262fa25::t_2321eed4f7c1f1 1-62
+wxt.config.ts
+  s_3a7e3f0262fa25::t_5bfacc3db7702e 15-16
+  s_3a7e3f0262fa25::t_6f70c12d33033c 13-14,17-18
+src/services/networkVerifier.test.ts
+  s_3a7e3f0262fa25::t_ca959d5ca8c8cf 1-90
+src/types/cdp.ts
+  s_3a7e3f0262fa25::t_01ee2ab0d7fd82 1-136,146-153
+  s_3a7e3f0262fa25::t_d36b6e8a6d101e 137-145
+package.json
+  s_3a7e3f0262fa25::t_1683bcc7263388 16
+  s_3a7e3f0262fa25::t_4352062f8f3ee7 11-12,15,26
+src/services/frameAggregator.ts
+  s_3a7e3f0262fa25::t_e549b1204d2a40 1-62
+src/services/networkVerifier.ts
+  s_3a7e3f0262fa25::t_8f3c42a4ca18e2 1-79
+pnpm-lock.yaml
+  s_3a7e3f0262fa25::t_4fc15716ffe3b9 11-16,32,39-41,47,54-56,304-310,521-658,665-667,671-673,677-679,711-742,860-863,930-933,938-941,1066-1069,1162-1164,1201-1204,1605-1607,1736-1739,1856-1860,1905-1907,1955-1960,2011-2016,2025-2036,2101-2105,2111-2150,2194-2221,2268-2272,2346-2348,2359-2363,2369-2370,2539-2541,2677-2751,2759-2763,2769-2770,2773-2774,2797,2800,2803-2848,2957,2959-2960,3001-3002,3076-3083,3086-3087,3197-3198,3289-3290,3340-3341,3671-3672,3809-3810,3960-3991,4025-4026,4071-4074,4126-4129,4137-4142,4208-4228,4250-4264,4279-4319,4385-4389,4423,4426,4522-4523
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "a379a821cc28e96fbb3e499f29f1fb81fd5e911b",
+  "prompts": {},
+  "sessions": {
+    "s_3a7e3f0262fa25": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "514fcb97-bb93-4c67-b3b5-9be9dfa76848",
+        "model": "auto"
+      },
+      "human_author": "xuewen.jia <xuewen.jia@ly.com>"
+    }
+  }
+}
