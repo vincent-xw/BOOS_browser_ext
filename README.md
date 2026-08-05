@@ -80,13 +80,20 @@ agent 能力来自同级仓库 `agent-kit`。开发期通过本地路径依赖�
 
 agent 能力需要一个本地 BFF 进程。它持有模型配置并注册远端工具，扩展只作为 Tool Host。
 
-```bash
-cd ../agent-kit && pnpm install && pnpm --filter browser-extension-bff build
-```
+首次准备：
 
 ```bash
-cd ../agent-kit && AGENT_KIT_MASTER_KEY=$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=') BFF_API_TOKEN=dev-token LLM_API_KEY=<你的 Ark Key> LLM_MODEL=<你的模型名> node examples/browser-extension-bff/dist/server.js
+cd ../agent-kit && pnpm install && cp examples/browser-extension-bff/.env.example examples/browser-extension-bff/.env
 ```
+
+填好 `.env`（需要 `AGENT_KIT_MASTER_KEY`、`BFF_API_TOKEN`、`LLM_API_KEY`、`LLM_MODEL`）后启动：
+
+```bash
+cd ../agent-kit && set -a && source examples/browser-extension-bff/.env && set +a && pnpm --filter browser-extension-bff dev
+```
+
+`dev` 带热重载（改 prompt 或工具定义后自动重编重启），`start` 是一次性启动。两者都会
+自动先编译依赖的 workspace 包。默认监听 `http://localhost:8787`。
 
 完整的环境变量清单与协议说明见 [agent-kit 的 BFF README](../agent-kit/examples/browser-extension-bff/README.md)。
 
