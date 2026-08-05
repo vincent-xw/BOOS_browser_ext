@@ -35,6 +35,15 @@ wxt.config.ts             # WXT 构建与 Manifest 配置
 openspec/changes/         # OpenSpec 变更文档（设计、规格、任务）
 ```
 
+## 两条执行路径
+
+**自由指令（调试期主用）**：用户下一句自然语言，agent 自己规划动作序列。
+入口 `src/composables/useFreeFormController.ts` + `src/components/FreeFormPanel.vue`。
+模型先调 `browser.snapshot` 看清页面，再用返回的 `ref` 指定目标——不写选择器。
+
+**BOSS 预设流程（保留）**：`src/agent/stepLoop.ts` 与 `src/services/cdpActionService.ts`
+里写死的动作序列。等自由指令调到可用后再删。
+
 ## 关键约定
 
 - **UI 技术栈**：Vue 3 组合式 API + Element Plus，所有界面元素统一使用这两个库。
@@ -48,13 +57,18 @@ openspec/changes/         # OpenSpec 变更文档（设计、规格、任务）
 - **坐标契约**：相对主页面 viewport 的 CSS 像素，**不乘 `devicePixelRatio`**。
   乘错在 Retina 上会点到约两倍偏移处，而且通常仍落在某个元素上 —— 症状是「点了但点错」
   而非报错，人工极难发现。改动坐标相关代码务必跑 `src/services/coordinates.test.ts`。
-- **每步重新定位**：每个写动作之前都要重新定位并重算坐标，不得缓存多个坐标连续点击。
-  弹窗、滚动、虚拟列表与框架重渲染都会让旧坐标失效。
+- **ref 与坐标的分工**：`ref` 稳定、坐标易失效。动作工具接受 `ref` 时由
+  `toolExecutor` 在下发前重新解析坐标，「每步重算坐标」由执行侧保证，而不是指望模型自觉。
+  元素已卸载时返回 `stale`，模型应重新快照而不是重试同一个 ref。
 - **验证不靠命令返回值**：动作后必须独立验证（弹窗/DOM/输入框/按钮可用/网络请求）。
   「命令没报错」不是成功判据。
 - **跨 frame 聚合取最优**：读取与定位在所有 frame 执行后按评分取最优，**不得** 退化为
   只读主 frame。注意 `chrome.tabs.sendMessage` 不带 `frameId` 时只返回第一个应答的
-  frame —— 那就是被禁止的退化行为。
+  frame —— 那就是被禁止的退化行为。快照是**合并**所有 frame 而非取最优，因为模型需要看到整页。
+- **写操作双闸门**：URL 白名单（`src/services/urlAllowlist.ts`）+ 逐步审批
+  （`src/agent/approvalGate.ts`）。白名单校验 **必须** 在 Service Worker 侧
+  （`background.ts` 的 `requireWritable`）—— 放 UI 侧的话绕过 UI 直接发消息就失效了。
+  两者的默认都偏严：空白名单拒绝一切、无审批界面时拒绝写操作。
 - **页面 I/O**：组件和 composable **不得** 直接调用 `chrome.*`，必须通过 `src/services/` 下的服务。
 - **不持有模型凭据**：扩展 **不得** 保存 LLM Endpoint、模型名或 API Key，也不得直连模型接口。
   这些由 BFF 持有，扩展只作为 Tool Host 执行白名单内的远端工具。

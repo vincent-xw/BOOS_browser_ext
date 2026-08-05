@@ -4,6 +4,7 @@ import { ElMessage } from 'element-plus';
 import { Connection, Position, RefreshRight, Setting, Tickets, Download } from '@element-plus/icons-vue';
 import ExtensionAppShell from '../../src/components/ExtensionAppShell.vue';
 import ExtensionSettingsPanel from '../../src/components/ExtensionSettingsPanel.vue';
+import FreeFormPanel from '../../src/components/FreeFormPanel.vue';
 import { usePageIoController } from '../../src/composables/usePageIoController';
 import { ref } from 'vue';
 import { runDiagnostics, formatDiagnosticResult } from '../../src/services/diagnosticService';
@@ -43,6 +44,8 @@ const {
   handleExport,
 } = usePageIoController();
 
+/** 调试期默认停在自由指令；BOSS 预设流程作为另一个 tab 保留。 */
+const activeMode = ref<'free-form' | 'preset'>('free-form');
 const settingsVisible = ref(false);
 const settingsSaving = ref(false);
 const diagnosticVisible = ref(false);
@@ -295,6 +298,15 @@ onBeforeUnmount(() => {
     </template>
 
     <div class="popup-layout">
+      <!--
+        两条路径并存：自由指令是调试期主用；BOSS 预设流程保留，
+        等自由指令调到可用后再删（见 openspec/changes/free-form-browser-agent）。
+      -->
+      <el-tabs v-model="activeMode" class="mode-tabs">
+        <el-tab-pane label="自由指令" name="free-form">
+          <FreeFormPanel />
+        </el-tab-pane>
+        <el-tab-pane label="BOSS 预设流程" name="preset">
       <el-card class="panel-card" shadow="never">
         <template #header>
           <div class="panel-header">
@@ -502,6 +514,8 @@ onBeforeUnmount(() => {
           </el-table>
         </el-space>
       </el-card>
+        </el-tab-pane>
+      </el-tabs>
     </div>
 
     <ExtensionSettingsPanel

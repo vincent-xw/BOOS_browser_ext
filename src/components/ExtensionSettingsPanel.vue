@@ -2,6 +2,9 @@
 import { computed, reactive, ref, watch } from 'vue';
 import { DEFAULT_SETTINGS, type AppSettings } from '../types/settings';
 import { checkBffConnectivity } from '../agent/agentClient';
+import { listPersistedGrants, revokeDomainGrants } from '../agent/approvalGate';
+import { addAllowRule, loadAllowRules, removeAllowRule } from '../services/permissionService';
+import type { UrlAllowRule } from '../services/urlAllowlist';
 
 const props = defineProps<{
   modelValue: boolean;
@@ -18,6 +21,71 @@ const form = reactive<AppSettings>(JSON.parse(JSON.stringify(DEFAULT_SETTINGS)) 
 
 const checkingConnectivity = ref(false);
 const connectivityResult = ref<{ ok: boolean; message: string } | null>(null);
+
+// ── 写操作白名单 ────────────────────────────────────────────────
+
+const allowRules = ref<UrlAllowRule[]>([]);
+const newRule = reactive<{ domain: string; pathPrefix: string }>({ domain: '', pathPrefix: '' });
+const addingRule = ref(false);
+const ruleFeedback = ref<{ ok: boolean; message: string } | null>(null);
+const currentHost = ref('');
+const grantEntries = ref<Array<{ domain: string; tools: string[] }>>([]);
+
+async function refreshAllowState(): Promise<void> {
+  allowRules.value = await loadAllowRules();
+  const grants = await listPersistedGrants();
+  grantEntries.value = Object.entries(grants).map(([domain, tools]) => ({ domain, tools }));
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    currentHost.value = tab?.url ? new URL(tab.url).hostname : '';
+  } catch {
+    currentHost.value = '';
+  }
+}
+
+function useCurrentHost(): void {
+  newRule.domain = currentHost.value;
+}
+
+/** 添加规则。权限申请必须由用户手势触发，所以只能从这个点击事件里发起。 */
+async function handleAddRule(): Promise<void> {
+  addingRule.value = true;
+  ruleFeedback.value = null;
+  try {
+    const rule: UrlAllowRule = {
+      domain: newRule.domain.trim(),
+      ...(newRule.pathPrefix.trim() ? { pathPrefix: newRule.pathPrefix.trim() } : {}),
+    };
+    const result = await addAllowRule(rule);
+    ruleFeedback.value = result;
+    if (result.ok) {
+      newRule.domain = '';
+      newRule.pathPrefix = '';
+      await refreshAllowState();
+    }
+  } finally {
+    addingRule.value = false;
+  }
+}
+
+async function handleRemoveRule(index: number): Promise<void> {
+  await removeAllowRule(index);
+  await refreshAllowState();
+}
+
+async function handleRevoke(domain: string): Promise<void> {
+  await revokeDomainGrants(domain);
+  await refreshAllowState();
+}
+
+// 抽屉每次打开都刷新：权限与授权可能在别处被改过。
+watch(
+  () => props.modelValue,
+  (visible) => {
+    if (visible) void refreshAllowState();
+  },
+  { immediate: true },
+);
 
 watch(
   () => props.settings,
@@ -166,6 +234,81 @@ function onSave() {
         </el-form>
       </el-card>
 
+      <!-- 允许操作的页面：白名单是「防止过于自由」的主要闸门 -->
+      <el-card shadow="never">
+        <template #header>
+          <div class="settings-header">
+            <el-text tag="b">允许操作的页面</el-text>
+            <el-tag type="danger" effect="plain">写操作白名单</el-tag>
+          </div>
+        </template>
+
+        <el-space direction="vertical" fill :size="12" style="width: 100%">
+          <el-alert type="info" :closable="false" show-icon>
+            只有列在这里的页面才允许执行点击、输入等写操作。添加域名时浏览器会请求该站点的访问权限。
+            留空表示不允许任何写操作。
+          </el-alert>
+
+          <el-table v-if="allowRules.length" :data="allowRules" size="small" border>
+            <el-table-column prop="domain" label="域名" min-width="140" show-overflow-tooltip />
+            <el-table-column label="路径限制" min-width="120" show-overflow-tooltip>
+              <template #default="scope">
+                {{ scope.row.pathPrefix || scope.row.pathPattern || '(不限)' }}
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="70">
+              <template #default="scope">
+                <el-button link type="danger" size="small" @click="handleRemoveRule(scope.$index)">移除</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+          <el-text v-else type="info" size="small">尚未添加任何域名，写操作会全部被拒绝。</el-text>
+
+          <el-form label-position="top">
+            <el-form-item label="域名">
+              <el-input v-model="newRule.domain" placeholder="例如 example.com 或 *.example.com">
+                <template #append>
+                  <el-button :disabled="!currentHost" @click="useCurrentHost">用当前站点</el-button>
+                </template>
+              </el-input>
+            </el-form-item>
+            <el-form-item label="路径前缀（可选）">
+              <el-input v-model="newRule.pathPrefix" placeholder="例如 /search，留空表示不限路径" />
+            </el-form-item>
+            <el-form-item>
+              <el-button type="primary" :loading="addingRule" @click="handleAddRule">添加并授权</el-button>
+            </el-form-item>
+          </el-form>
+
+          <el-alert
+            v-if="ruleFeedback"
+            :type="ruleFeedback.ok ? 'success' : 'error'"
+            :closable="false"
+            show-icon
+            :title="ruleFeedback.message"
+          />
+        </el-space>
+      </el-card>
+
+      <!-- 已授权的免审批动作：让用户能看到并撤销「永久允许」 -->
+      <el-card v-if="grantEntries.length" shadow="never">
+        <template #header>
+          <div class="settings-header">
+            <el-text tag="b">免审批授权</el-text>
+            <el-tag type="warning" effect="plain">{{ grantEntries.length }} 个域名</el-tag>
+          </div>
+        </template>
+        <el-space direction="vertical" fill :size="8" style="width: 100%">
+          <div v-for="entry in grantEntries" :key="entry.domain" class="grant-row">
+            <div>
+              <el-text size="small" tag="b">{{ entry.domain }}</el-text>
+              <el-text size="small" type="info" style="display: block">{{ entry.tools.join('、') }}</el-text>
+            </div>
+            <el-button link type="danger" size="small" @click="handleRevoke(entry.domain)">撤销</el-button>
+          </div>
+        </el-space>
+      </el-card>
+
       <el-alert
         type="warning"
         :closable="false"
@@ -179,6 +322,16 @@ function onSave() {
 </template>
 
 <style scoped>
+.grant-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 8px;
+  background: var(--el-fill-color-lighter);
+  border-radius: 4px;
+}
+
 .settings-header {
   display: flex;
   align-items: center;
