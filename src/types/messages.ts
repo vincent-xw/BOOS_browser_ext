@@ -80,6 +80,8 @@ export type MessageErrorCode =
   | 'CONTENT_UNAVAILABLE'
   | 'TAB_MISSING'
   | 'NOT_FOUND'
+  /** 目标页面不在用户配置的白名单内，写操作被拒。 */
+  | 'URL_NOT_ALLOWED'
   | 'TIMEOUT';
 
 export type { ElementLocator, LocateResult, ObservedRequest, VerifyRequest, VerifyResult };

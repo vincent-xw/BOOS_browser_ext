@@ -6,6 +6,8 @@ import type { LocateResult, PageSnapshot, PageSnapshotResult, RefResolution } fr
 import { CdpError, createCdpSessionManager, describeDetachReason } from '../src/services/cdpSessionManager';
 import { mergeTriedSelectors, pickBestOutcome, scoreLocateResult, scorePageSnapshot } from '../src/services/frameAggregator';
 import type { FrameOutcome } from '../src/services/frameAggregator';
+import { ALLOWLIST_STORAGE_KEY, isUrlAllowed } from '../src/services/urlAllowlist';
+import type { UrlAllowRule } from '../src/services/urlAllowlist';
 
 export default defineBackground(() => {
   const requestFilter: chrome.webRequest.RequestFilter = {
@@ -62,13 +64,13 @@ export default defineBackground(() => {
     [MessageType.CdpSessionState]: async () => cdp.state(),
 
     [MessageType.CdpClick]: async (message) => {
-      await requireSession(message.tabId);
+      await requireWritable(message.tabId);
       await cdp.click(message.x, message.y);
       return { ok: true, message: `已在 (${message.x}, ${message.y}) 下发真实点击${message.label ? `：${message.label}` : ''}` };
     },
 
     [MessageType.CdpInputText]: async (message) => {
-      await requireSession(message.tabId);
+      await requireWritable(message.tabId);
       // 先点击建立真实焦点，再 insertText。不改 value —— 那会绕过输入法与框架的受控更新路径。
       await cdp.click(message.x, message.y);
       const focus = await readFocusState(message.tabId);
@@ -81,13 +83,13 @@ export default defineBackground(() => {
     },
 
     [MessageType.CdpPressKey]: async (message) => {
-      await requireSession(message.tabId);
+      await requireWritable(message.tabId);
       await cdp.pressKey(message.key, message.modifiers ?? []);
       return { ok: true, message: `已下发按键 ${message.key}` };
     },
 
     [MessageType.CdpScroll]: async (message) => {
-      await requireSession(message.tabId);
+      await requireWritable(message.tabId);
       const anchor = typeof message.x === 'number' && typeof message.y === 'number' ? { x: message.x, y: message.y } : undefined;
       await cdp.scroll(message.deltaY, anchor);
       return { ok: true, message: `已滚动 ${message.deltaY}px。所有既有坐标已失效，请重新定位。` };
@@ -197,6 +199,39 @@ export default defineBackground(() => {
           : '当前标签页没有可用的调试会话，请先启动任务以建立调试连接。',
       );
     }
+  }
+
+  /**
+   * 写操作前校验目标页面是否在白名单内。
+   *
+   * 校验点必须在 Service Worker：放在 UI 侧的话，绕过 UI 直接 sendMessage 就失效了。
+   * 白名单从 chrome.storage.local 读，与设置界面共享同一份数据。
+   */
+  async function requireAllowedUrl(tabId: number): Promise<void> {
+    const tab = await chrome.tabs.get(tabId).catch(() => undefined);
+    const url = tab?.url ?? '';
+    const rules = await loadAllowRules();
+    const check = isUrlAllowed(url, rules);
+    if (!check.allowed) {
+      throw new RoutedError('URL_NOT_ALLOWED', `该页面不允许执行写操作：${check.reason}`, url);
+    }
+  }
+
+  /** 读取白名单规则。存储不可用或格式不对时返回空数组（即拒绝一切写操作）。 */
+  async function loadAllowRules(): Promise<UrlAllowRule[]> {
+    try {
+      const stored = await chrome.storage.local.get(ALLOWLIST_STORAGE_KEY);
+      const value = stored[ALLOWLIST_STORAGE_KEY];
+      return Array.isArray(value) ? (value as UrlAllowRule[]) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  /** 写操作的公共前置：会话可用 + 页面在白名单内。 */
+  async function requireWritable(tabId: number): Promise<void> {
+    await requireSession(tabId);
+    await requireAllowedUrl(tabId);
   }
 
   /** 读取焦点状态。用于确认 CDP 点击是否真的把焦点落在了输入框上。 */

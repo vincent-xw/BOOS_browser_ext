@@ -14,8 +14,14 @@ export default defineConfig({
     // DOM 合成事件的 isTrusted 为 false，拿不到真实焦点与 user activation。
     // webNavigation：枚举 frame 以做跨 frame 聚合定位，不退化为只读主 frame。
     permissions: ['activeTab', 'scripting', 'tabs', 'sidePanel', 'webRequest', 'webNavigation', 'debugger', 'storage'],
-    // Ark 端点已移除：模型凭据只由 BFF 持有，扩展不再直连模型接口。
+    // 只保留 BFF 与 BOSS 直聘（既有预设流程需要）。
     host_permissions: ['https://*.zhipin.com/*', 'http://localhost/*'],
+    /**
+     * 调试期可操作任意页面，但域名要由用户在设置里显式添加 ——
+     * 声明为 optional 而非直接要 <all_urls>，安装时不会索取「读取所有网站数据」。
+     * content script 通过 chrome.scripting.registerContentScripts 动态注册。
+     */
+    optional_host_permissions: ['*://*/*'],
     action: {
       default_title: 'BOOS Browser AI Extension',
     },

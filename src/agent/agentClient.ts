@@ -1,3 +1,4 @@
+import type { ApprovalGate } from './approvalGate';
 import { executeTool, isAllowedTool } from './toolExecutor';
 import type { MessageSender } from './toolExecutor';
 
@@ -83,9 +84,19 @@ async function callBff<T>(config: BffConfig, path: string, body: unknown): Promi
   }
 }
 
-/** 发起 agent 运行。 */
-export function runAgent(config: BffConfig, sessionId: string, input: string, context: Record<string, unknown> = {}): Promise<AgentRunResult> {
-  return callBff<AgentRunResult>(config, `/v1/agent/sessions/${encodeURIComponent(sessionId)}/run`, { input, context });
+/** 发起 agent 运行。promptName 用于选择 BFF 侧已注册的提示词。 */
+export function runAgent(
+  config: BffConfig,
+  sessionId: string,
+  input: string,
+  context: Record<string, unknown> = {},
+  promptName?: string,
+): Promise<AgentRunResult> {
+  return callBff<AgentRunResult>(config, `/v1/agent/sessions/${encodeURIComponent(sessionId)}/run`, {
+    input,
+    context,
+    ...(promptName ? { promptName } : {}),
+  });
 }
 
 /** 回填单个工具结果。 */
@@ -123,6 +134,8 @@ export interface StepEvent {
   input: unknown;
   output: unknown;
   allowed: boolean;
+  /** 是否被用户拒绝。与 allowed=false（白名单外）区分开。 */
+  denied?: boolean;
 }
 
 export interface AgentSessionOptions {
@@ -134,6 +147,12 @@ export interface AgentSessionOptions {
   maxSteps?: number;
   onStep?: (event: StepEvent) => void;
   signal?: AbortSignal;
+  /** 指定 BFF 侧的提示词。省略时用 BFF 的默认提示词（free-form）。 */
+  promptName?: string;
+  /** 审批门。提供时写操作需先获批；省略时不做审批（预设流程走这条）。 */
+  approval?: ApprovalGate;
+  /** 当前页面 URL，用于审批展示与域名级授权判定。 */
+  currentUrl?: string;
 }
 
 /**
@@ -141,12 +160,14 @@ export interface AgentSessionOptions {
  *
  * 每收到 pending_tool_calls 就逐个执行并回填 —— 同轮全部回填后 BFF 才推进模型。
  * 白名单外的工具名不执行任何页面动作，直接回填未授权结果。
+ * 注入审批门时，写操作需先获得用户批准；被拒绝的动作把拒绝原因回填给模型，
+ * 让它知道该动作没有发生，而不是误以为成功。
  */
 export async function runAgentSession(input: string, options: AgentSessionOptions): Promise<{ output: unknown; steps: number }> {
-  const { config, sessionId, tabId, send, onStep } = options;
+  const { config, sessionId, tabId, send, onStep, approval } = options;
   const maxSteps = options.maxSteps ?? 30;
 
-  let result = await runAgent(config, sessionId, input);
+  let result = await runAgent(config, sessionId, input, {}, options.promptName);
   let step = 0;
 
   while (result.type === 'pending_tool_calls') {
@@ -158,8 +179,28 @@ export async function runAgentSession(input: string, options: AgentSessionOption
       if (options.signal?.aborted) throw new BffError('ABORTED', '任务已被停止。');
       step += 1;
       const allowed = isAllowedTool(call.toolName);
-      const output = await executeTool(call.toolName, call.input, { tabId, send });
-      onStep?.({ step, toolName: call.toolName, input: call.input, output, allowed });
+
+      let output: unknown;
+      let denied = false;
+      if (!allowed) {
+        output = await executeTool(call.toolName, call.input, { tabId, send });
+      } else if (approval) {
+        const decision = await approval.requestPermission(call.toolName, call.input, options.currentUrl ?? '');
+        if (decision.approved) {
+          output = await executeTool(call.toolName, call.input, { tabId, send });
+        } else {
+          denied = true;
+          output = {
+            ok: false,
+            code: 'USER_DENIED',
+            message: decision.reason ?? '用户拒绝了该操作，动作未执行。请不要尝试绕过，直接说明该步未获批准。',
+          };
+        }
+      } else {
+        output = await executeTool(call.toolName, call.input, { tabId, send });
+      }
+
+      onStep?.({ step, toolName: call.toolName, input: call.input, output, allowed, ...(denied ? { denied } : {}) });
       // 逐个回填。全部回填完毕后 BFF 才会推进模型并返回下一轮或 final。
       next = await submitToolResult(config, sessionId, call.callId, output);
     }

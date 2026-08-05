@@ -153,6 +153,106 @@ describe('错误处理', () => {
   });
 });
 
+describe('审批门集成', () => {
+  /** 记录页面动作是否真的发出过。 */
+  function trackingSender() {
+    const sent: ExtensionRequest[] = [];
+    const send = (async (message: ExtensionRequest) => {
+      sent.push(message);
+      return { ok: true, message: 'done' };
+    }) as unknown as <T>(message: ExtensionRequest) => Promise<T>;
+    return { sent, send };
+  }
+
+  /** 固定决定的审批门桩件。 */
+  function gate(approved: boolean) {
+    const asked: string[] = [];
+    return {
+      asked,
+      gate: {
+        requestPermission: async (toolName: string) => {
+          asked.push(toolName);
+          return approved ? { approved: true as const, scope: 'once' as const } : { approved: false as const, reason: '用户拒绝' };
+        },
+        resetSession: () => undefined,
+      },
+    };
+  }
+
+  it('批准后正常执行动作', async () => {
+    const { sent, send } = trackingSender();
+    const { gate: approval, asked } = gate(true);
+    stubResponses(
+      { body: { type: 'pending_tool_calls', calls: [{ callId: 'c1', toolName: 'browser.click', input: { x: 1, y: 2 } }] } },
+      { body: finalResult },
+    );
+    await runAgentSession('点击', { config, sessionId: 's-1', tabId: 1, send, approval, currentUrl: 'https://example.com/' });
+    expect(asked).toEqual(['browser.click']);
+    expect(sent.some((message) => message.type === 'BOOS_CDP_CLICK')).toBe(true);
+  });
+
+  it('被拒绝时不执行任何页面动作', async () => {
+    const { sent, send } = trackingSender();
+    const { gate: approval } = gate(false);
+    stubResponses(
+      { body: { type: 'pending_tool_calls', calls: [{ callId: 'c1', toolName: 'browser.click', input: { x: 1, y: 2 } }] } },
+      { body: finalResult },
+    );
+    await runAgentSession('点击', { config, sessionId: 's-1', tabId: 1, send, approval, currentUrl: 'https://example.com/' });
+    expect(sent).toHaveLength(0);
+  });
+
+  it('拒绝原因回填给模型，避免它误以为动作成功', async () => {
+    const { send } = trackingSender();
+    const { gate: approval } = gate(false);
+    const { calls } = stubResponses(
+      { body: { type: 'pending_tool_calls', calls: [{ callId: 'c1', toolName: 'browser.click', input: {} }] } },
+      { body: finalResult },
+    );
+    await runAgentSession('点击', { config, sessionId: 's-1', tabId: 1, send, approval, currentUrl: 'https://example.com/' });
+    expect(calls[1]?.body).toMatchObject({ output: { ok: false, code: 'USER_DENIED' } });
+  });
+
+  it('拒绝事件在 onStep 中标记 denied', async () => {
+    const { send } = trackingSender();
+    const { gate: approval } = gate(false);
+    stubResponses(
+      { body: { type: 'pending_tool_calls', calls: [{ callId: 'c1', toolName: 'browser.click', input: {} }] } },
+      { body: finalResult },
+    );
+    const events: Array<{ denied?: boolean }> = [];
+    await runAgentSession('点击', {
+      config, sessionId: 's-1', tabId: 1, send, approval, currentUrl: 'https://example.com/',
+      onStep: (event) => events.push(event),
+    });
+    expect(events[0]).toMatchObject({ denied: true });
+  });
+
+  it('未注入审批门时不做审批（预设流程路径）', async () => {
+    const { sent, send } = trackingSender();
+    stubResponses(
+      { body: { type: 'pending_tool_calls', calls: [{ callId: 'c1', toolName: 'browser.click', input: { x: 1, y: 2 } }] } },
+      { body: finalResult },
+    );
+    await runAgentSession('点击', { config, sessionId: 's-1', tabId: 1, send });
+    expect(sent.some((message) => message.type === 'BOOS_CDP_CLICK')).toBe(true);
+  });
+
+  it('promptName 透传到 run 请求', async () => {
+    const { send } = trackingSender();
+    const { calls } = stubResponses({ body: finalResult });
+    await runAgentSession('评估', { config, sessionId: 's-1', tabId: 1, send, promptName: 'candidate-assessment' });
+    expect(calls[0]?.body).toMatchObject({ promptName: 'candidate-assessment' });
+  });
+
+  it('省略 promptName 时请求体不含该字段', async () => {
+    const { send } = trackingSender();
+    const { calls } = stubResponses({ body: finalResult });
+    await runAgentSession('你好', { config, sessionId: 's-1', tabId: 1, send });
+    expect(calls[0]?.body).not.toHaveProperty('promptName');
+  });
+});
+
 describe('checkBffConnectivity', () => {
   it('可达且凭据有效', async () => {
     stubResponses({ body: finalResult });
