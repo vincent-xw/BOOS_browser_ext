@@ -1,171 +1,312 @@
 import { defineBackground } from 'wxt/utils/define-background';
 
+import { MessageType } from '../src/types/messages';
+import type { ExtensionRequest, MessageErrorCode, MessageResponse } from '../src/types/messages';
+import type { LocateResult, PageSnapshot } from '../src/types/cdp';
+import { CdpError, createCdpSessionManager, describeDetachReason } from '../src/services/cdpSessionManager';
+import { mergeTriedSelectors, pickBestOutcome, scoreLocateResult, scorePageSnapshot } from '../src/services/frameAggregator';
+import type { FrameOutcome } from '../src/services/frameAggregator';
+
 export default defineBackground(() => {
   const requestFilter: chrome.webRequest.RequestFilter = {
     urls: ['https://*.zhipin.com/*'],
     types: ['xmlhttprequest'],
   };
 
-  type NetworkTrace = {
-    requestId: string;
-    tabId: number;
-    method?: string;
-    url?: string;
-    type?: string;
-    initiator?: string;
-    statusCode?: number;
-    timeStamp?: number;
-    requestHeaders?: Record<string, string>;
-    responseHeaders?: Record<string, string>;
-    requestBody?: unknown;
-    error?: string;
-  };
-
-  const traces = new Map<string, NetworkTrace>();
   const latestGeekListUrlByTab = new Map<number, string>();
   const GEEK_LIST_API_RE = /\/wapi\/zpjob\/rec\/geek\/list/i;
 
-  const toHeaderObject = (
-    headers?: chrome.webRequest.HttpHeader[],
-  ): Record<string, string> => {
-    const result: Record<string, string> = {};
-    for (const item of headers ?? []) {
-      if (!item.name) {
-        continue;
+  const cdp = createCdpSessionManager();
+
+  // ── CDP 会话事件 ────────────────────────────────────────────────
+
+  chrome.debugger.onEvent.addListener((source, method, params) => {
+    if (typeof source.tabId === 'number') cdp.handleDebuggerEvent(source.tabId, method, params);
+  });
+
+  chrome.debugger.onDetach.addListener((source, reason) => {
+    if (typeof source.tabId !== 'number') return;
+    cdp.handleDetach(source.tabId, reason);
+  });
+
+  cdp.onDetach((tabId, reason) => {
+    // 广播给 UI，使任务能置失败并展示可读原因。UI 未打开时 sendMessage 会 reject，属预期。
+    void chrome.runtime
+      .sendMessage({ type: MessageType.CdpSessionState, tabId, reason, message: describeDetachReason(reason) })
+      .catch(() => undefined);
+  });
+
+  // 标签页关闭时释放会话，避免把命令打到已失效的 target 上。
+  chrome.tabs.onRemoved.addListener((tabId) => {
+    if (cdp.activeTabId === tabId) void cdp.detach('target_closed');
+  });
+
+  // ── 消息路由 ────────────────────────────────────────────────────
+
+  /** 每个 handler 返回 data，异常由路由统一转成结构化失败。 */
+  const handlers: {
+    [K in ExtensionRequest['type']]: (message: Extract<ExtensionRequest, { type: K }>) => Promise<unknown>;
+  } = {
+    [MessageType.GetLastGeekListUrl]: async (message) => {
+      const url = latestGeekListUrlByTab.get(message.tabId);
+      if (!url) throw new RoutedError('NOT_FOUND', '尚未捕获该标签页的候选人列表接口地址。');
+      return { url };
+    },
+
+    [MessageType.CdpAttach]: (message) => cdp.attach(message.tabId),
+    [MessageType.CdpDetach]: async (message) => {
+      void message;
+      await cdp.detach('stopped_by_user');
+      return { detached: true };
+    },
+    [MessageType.CdpSessionState]: async () => cdp.state(),
+
+    [MessageType.CdpClick]: async (message) => {
+      await requireSession(message.tabId);
+      await cdp.click(message.x, message.y);
+      return { ok: true, message: `已在 (${message.x}, ${message.y}) 下发真实点击${message.label ? `：${message.label}` : ''}` };
+    },
+
+    [MessageType.CdpInputText]: async (message) => {
+      await requireSession(message.tabId);
+      // 先点击建立真实焦点，再 insertText。不改 value —— 那会绕过输入法与框架的受控更新路径。
+      await cdp.click(message.x, message.y);
+      const focus = await readFocusState(message.tabId);
+      if (!focus.focused) {
+        return { ok: false, message: `点击输入框后焦点未落在可编辑元素上（当前焦点：${focus.activeTag}），未写入文本。`, focused: false };
       }
-      result[item.name] = item.value ?? '';
-    }
-    return result;
+      await cdp.insertText(message.text);
+      const after = await readFocusState(message.tabId);
+      return { ok: true, message: '文本已通过 Input.insertText 写入。', focused: true, actualValue: after.value };
+    },
+
+    [MessageType.CdpPressKey]: async (message) => {
+      await requireSession(message.tabId);
+      await cdp.pressKey(message.key, message.modifiers ?? []);
+      return { ok: true, message: `已下发按键 ${message.key}` };
+    },
+
+    [MessageType.CdpScroll]: async (message) => {
+      await requireSession(message.tabId);
+      const anchor = typeof message.x === 'number' && typeof message.y === 'number' ? { x: message.x, y: message.y } : undefined;
+      await cdp.scroll(message.deltaY, anchor);
+      return { ok: true, message: `已滚动 ${message.deltaY}px。所有既有坐标已失效，请重新定位。` };
+    },
+
+    [MessageType.CdpScreenshot]: async (message) => {
+      await requireSession(message.tabId);
+      return cdp.screenshot(message.format ?? 'png');
+    },
+
+    [MessageType.CdpNetworkStart]: async (message) => {
+      await requireSession(message.tabId);
+      await cdp.startNetworkObservation();
+      return { observing: true };
+    },
+
+    [MessageType.CdpNetworkCollect]: async (message) => {
+      await requireSession(message.tabId);
+      return { requests: cdp.collectRequests(message.urlPattern) };
+    },
+
+    [MessageType.ContentPing]: (message) => forwardToContent(message.tabId, message),
+    [MessageType.ContentLocate]: async (message) => {
+      // 向所有 frame 广播后按评分取最优。不能用 tabs.sendMessage 的默认行为 ——
+      // 它只返回第一个应答的 frame，等于退化成「只读主 frame」。
+      const outcomes = await broadcastToFrames<LocateResult>(message.tabId, message);
+      const best = pickBestOutcome(outcomes, scoreLocateResult);
+      if (best?.result.found) return { ...best.result, frameId: String(best.frameId) };
+      const tried = mergeTriedSelectors(outcomes);
+      return {
+        found: false,
+        triedSelectors: tried,
+        message: `全部 ${outcomes.length} 个 frame 均未定位到 ${message.locator.role}，已尝试 ${tried.length} 个选择器。`,
+      } satisfies LocateResult;
+    },
+    [MessageType.ContentVerify]: (message) => forwardToContent(message.tabId, message),
+    [MessageType.ContentReadPage]: async (message) => {
+      const outcomes = await broadcastToFrames<PageSnapshot>(message.tabId, message);
+      const best = pickBestOutcome(outcomes, scorePageSnapshot);
+      if (!best) throw new RoutedError('CONTENT_UNAVAILABLE', '没有任何 frame 返回页面内容，请刷新目标页面后重试。');
+      return best.result;
+    },
   };
 
-  const finalizeTrace = (requestId: string) => {
-    const trace = traces.get(requestId);
-    if (!trace) {
-      return;
+  chrome.runtime.onMessage.addListener((message: ExtensionRequest, sender, sendResponse) => {
+    const handler = handlers[message?.type as ExtensionRequest['type']] as
+      | ((request: ExtensionRequest) => Promise<unknown>)
+      | undefined;
+
+    // 未知消息类型返回结构化失败，不静默忽略 —— 静默忽略会让调用方一直等待。
+    if (!handler) {
+      sendResponse({ ok: false, code: 'UNKNOWN_MESSAGE_TYPE', message: `不支持的消息类型：${String(message?.type)}` } satisfies MessageResponse);
+      return false;
     }
 
-    traces.delete(requestId);
-  };
+    const tabId = typeof message.tabId === 'number' ? message.tabId : sender.tab?.id;
+    if (typeof tabId !== 'number' || tabId < 0) {
+      sendResponse({ ok: false, code: 'TAB_MISSING', message: '缺少有效的标签页 ID。' } satisfies MessageResponse);
+      return false;
+    }
+
+    handler({ ...message, tabId })
+      .then((data) => sendResponse({ ok: true, data } satisfies MessageResponse))
+      .catch((error: unknown) => sendResponse(toFailure(error)));
+    return true;
+  });
+
+  /** 确认调试会话仍然有效。SW 唤醒后 storage 可能说还连着、但实际已断开。 */
+  async function requireSession(tabId: number): Promise<void> {
+    const state = await cdp.restore();
+    if (!state.attached || state.tabId !== tabId) {
+      throw new RoutedError(
+        'NO_DEBUG_SESSION',
+        state.detachReason
+          ? describeDetachReason(state.detachReason)
+          : '当前标签页没有可用的调试会话，请先启动任务以建立调试连接。',
+      );
+    }
+  }
+
+  /** 读取焦点状态。用于确认 CDP 点击是否真的把焦点落在了输入框上。 */
+  async function readFocusState(tabId: number): Promise<{ focused: boolean; activeTag: string; value: string }> {
+    const [result] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        const active = document.activeElement;
+        const tag = active?.tagName?.toLowerCase() ?? 'none';
+        const editable =
+          active instanceof HTMLInputElement ||
+          active instanceof HTMLTextAreaElement ||
+          (active instanceof HTMLElement && active.isContentEditable);
+        const value =
+          active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement
+            ? active.value
+            : active instanceof HTMLElement
+              ? active.innerText
+              : '';
+        return { focused: editable, activeTag: tag, value };
+      },
+    });
+    return (result?.result as { focused: boolean; activeTag: string; value: string } | undefined) ?? {
+      focused: false,
+      activeTag: 'unknown',
+      value: '',
+    };
+  }
+
+  /** 转发到 content script，未就绪时按需注入并重试一次。 */
+  async function forwardToContent(tabId: number, message: ExtensionRequest): Promise<unknown> {
+    const response = await sendToTab(tabId, message);
+    if (response) return unwrap(response);
+
+    await injectContentScript(tabId);
+
+    const retried = await sendToTab(tabId, message);
+    if (!retried) throw new RoutedError('CONTENT_UNAVAILABLE', '页面脚本注入后仍无响应，请刷新目标页面后重试。');
+    return unwrap(retried);
+  }
+
+  /**
+   * 向标签页的每个 frame 分别投递并收集结果。
+   * 单个 frame 失败（跨源、已卸载、脚本未注入）只留空结果，不影响其余 frame。
+   */
+  async function broadcastToFrames<T>(tabId: number, message: ExtensionRequest): Promise<Array<FrameOutcome<T>>> {
+    let frames = await listFrames(tabId);
+    if (frames.length === 0) frames = [0];
+
+    const collect = () =>
+      Promise.all(
+        frames.map(async (frameId): Promise<FrameOutcome<T>> => {
+          try {
+            const response = (await chrome.tabs.sendMessage(tabId, message, { frameId })) as MessageResponse<T> | undefined;
+            return response?.ok ? { frameId, result: response.data } : { frameId };
+          } catch {
+            return { frameId };
+          }
+        }),
+      );
+
+    const outcomes = await collect();
+    if (outcomes.some((outcome) => outcome.result !== undefined)) return outcomes;
+
+    // 全部 frame 无应答：脚本可能尚未注入，注入后重试一次。
+    await injectContentScript(tabId);
+    return collect();
+  }
+
+  async function listFrames(tabId: number): Promise<number[]> {
+    try {
+      const frames = await chrome.webNavigation?.getAllFrames({ tabId });
+      return (frames ?? []).map((frame) => frame.frameId);
+    } catch {
+      return [];
+    }
+  }
+
+  async function injectContentScript(tabId: number): Promise<void> {
+    try {
+      await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, files: ['content-scripts/content.js'] });
+    } catch (error) {
+      throw new RoutedError('CONTENT_UNAVAILABLE', '页面脚本未就绪且注入失败，请刷新目标页面后重试。', errorText(error));
+    }
+  }
+
+  async function sendToTab(tabId: number, message: ExtensionRequest): Promise<MessageResponse | undefined> {
+    try {
+      return await chrome.tabs.sendMessage(tabId, message);
+    } catch {
+      return undefined;
+    }
+  }
+
+  function unwrap(response: MessageResponse): unknown {
+    if (response.ok) return response.data;
+    throw new RoutedError(response.code, response.message, response.details);
+  }
+
+  // ── 候选人列表接口 URL 缓存（既有能力）─────────────────────────
 
   chrome.webRequest.onBeforeRequest.addListener(
     (details) => {
       if (details.tabId >= 0 && GEEK_LIST_API_RE.test(details.url)) {
         latestGeekListUrlByTab.set(details.tabId, details.url);
       }
-
-      traces.set(details.requestId, {
-        requestId: details.requestId,
-        tabId: details.tabId,
-        method: details.method,
-        url: details.url,
-        type: details.type,
-        initiator: details.initiator,
-        timeStamp: details.timeStamp,
-        requestBody: details.requestBody,
-      });
-    },
-    requestFilter,
-    ['requestBody'],
-  );
-
-  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (message?.type !== 'BOOS_GET_LAST_GEEK_LIST_URL') {
-      return;
-    }
-
-    const tabId = typeof message.tabId === 'number' ? message.tabId : sender.tab?.id;
-    if (typeof tabId !== 'number' || tabId < 0) {
-      sendResponse({ ok: false, message: 'invalid-tab-id' });
-      return;
-    }
-
-    const url = latestGeekListUrlByTab.get(tabId);
-    if (!url) {
-      sendResponse({ ok: false, message: 'no-cached-url' });
-      return;
-    }
-
-    sendResponse({ ok: true, url });
-  });
-
-  chrome.webRequest.onBeforeSendHeaders.addListener(
-    (details) => {
-      const current = traces.get(details.requestId) ?? {
-        requestId: details.requestId,
-        tabId: details.tabId,
-      };
-
-      traces.set(details.requestId, {
-        ...current,
-        method: current.method ?? details.method,
-        url: current.url ?? details.url,
-        requestHeaders: toHeaderObject(details.requestHeaders),
-      });
-    },
-    requestFilter,
-    ['requestHeaders', 'extraHeaders'],
-  );
-
-  chrome.webRequest.onHeadersReceived.addListener(
-    (details) => {
-      const current = traces.get(details.requestId) ?? {
-        requestId: details.requestId,
-        tabId: details.tabId,
-      };
-
-      traces.set(details.requestId, {
-        ...current,
-        method: current.method ?? details.method,
-        url: current.url ?? details.url,
-        statusCode: details.statusCode,
-        responseHeaders: toHeaderObject(details.responseHeaders),
-      });
-    },
-    requestFilter,
-    ['responseHeaders', 'extraHeaders'],
-  );
-
-  chrome.webRequest.onCompleted.addListener(
-    (details) => {
-      const current = traces.get(details.requestId);
-      if (current) {
-        traces.set(details.requestId, {
-          ...current,
-          statusCode: details.statusCode,
-          timeStamp: details.timeStamp,
-        });
-      }
-      finalizeTrace(details.requestId);
     },
     requestFilter,
   );
 
-  chrome.webRequest.onErrorOccurred.addListener(
-    (details) => {
-      const current = traces.get(details.requestId) ?? {
-        requestId: details.requestId,
-        tabId: details.tabId,
-        method: details.method,
-        url: details.url,
-      };
-
-      traces.set(details.requestId, {
-        ...current,
-        error: details.error,
-        timeStamp: details.timeStamp,
-      });
-      finalizeTrace(details.requestId);
-    },
-    requestFilter,
-  );
-
-  if (!chrome.sidePanel?.setPanelBehavior) {
-    return;
-  }
-
-  chrome.sidePanel
-    .setPanelBehavior({ openPanelOnActionClick: true })
-    .catch((error) => {
+  if (chrome.sidePanel?.setPanelBehavior) {
+    chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch((error) => {
       console.warn('[BOOS] Failed to enable openPanelOnActionClick:', error);
     });
+  }
 });
+
+/** 带错误码的路由异常。 */
+class RoutedError extends Error {
+  constructor(
+    readonly code: MessageErrorCode,
+    message: string,
+    readonly details?: string,
+  ) {
+    super(message);
+    this.name = 'RoutedError';
+  }
+}
+
+/** 把任意异常归一化为结构化失败响应。 */
+function toFailure(error: unknown): MessageResponse {
+  if (error instanceof RoutedError) {
+    return { ok: false, code: error.code, message: error.message, ...(error.details ? { details: error.details } : {}) };
+  }
+  if (error instanceof CdpError) {
+    return { ok: false, code: error.code, message: error.message, ...(error.details ? { details: error.details } : {}) };
+  }
+  return { ok: false, code: 'CDP_COMMAND_FAILED', message: '操作执行失败', details: errorText(error) };
+}
+
+function errorText(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return typeof error === 'string' ? error : JSON.stringify(error);
+}

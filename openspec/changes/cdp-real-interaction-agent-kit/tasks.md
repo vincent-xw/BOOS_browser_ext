@@ -2,101 +2,101 @@
 
 在 `/Users/xuewen/ai-lab/project/agent-kit` 仓库内完成。每项均需补单测，收尾跑 `pnpm typecheck && pnpm test`。
 
-- [ ] 1.1 新增 `packages/core/src/json-schema.ts`：zod → JSON Schema 转换，支持对象、字符串、数值、布尔、枚举、数组、可选字段与嵌套对象；不支持的结构抛带稳定错误码的异常并指明工具名与字段名
-- [ ] 1.2 在 `packages/core/src/errors.ts` 的 `AgentKitErrorCode` 中新增所需错误码（Schema 转换失败、工具执行超时、工具结果无法关联调用）
-- [ ] 1.3 为 `json-schema.ts` 写单测：覆盖嵌套对象、可选字段的 `required` 正确性、枚举、数组、以及不支持结构抛错
-- [ ] 1.4 修 `packages/core/src/llm-client.ts:86-89`：请求体注入 `tools` 字段，内容由工具注册表经 1.1 转换得出；注册表为空时省略该字段
-- [ ] 1.5 修 `packages/core/src/llm-client.ts:33-38`：`role: 'tool'` 消息携带 `tool_call_id`；无法关联到已发起调用的工具结果直接拒绝并返回稳定错误码
-- [ ] 1.6 扩展 `packages/core/src/contracts.ts:15` 的 `SessionMessage` 支持 `assistant` 角色（含其发起的 tool calls），并在 harness 中持久化每轮 assistant 输出
-- [ ] 1.7 修 `packages/core/src/llm-client.ts:51-64`：解析并返回本轮全部 tool calls，不再只取第一个
-- [ ] 1.8 修 `packages/core/src/harness.ts`：支持一轮内多个待执行工具调用，全部结果回填后才进入下一轮；其中部分失败时把失败与成功结果一并回传模型，不中断整轮
-- [ ] 1.9 给 `ToolDefinition.execute` 增加 `AbortSignal` 参数与超时上限配置；超时以稳定错误码结束该次调用，harness 循环继续
-- [ ] 1.10 把 `harness.ts:38` 的进程内 `pendingCalls` Map 抽成可插拔存储接口，保留内存实现为默认；验证进程重启后凭 `callId` 回填仍可关联
-- [ ] 1.11 把 `context-manager.ts` 接进 harness 的消息构造流程（当前完全未被调用）；保持 `slice(-maxMessages)` 策略不变，不升级为真摘要
-- [ ] 1.12 让 `prompt-registry.ts:11` 的 `RegisteredPrompt.protocol` 在构造请求时被实际读取应用；若判定本次不接入则从公开接口移除该字段
-- [ ] 1.13 补 harness 集成测试：用真实（非伪造）的 `LlmClient` 请求体断言 `tools` 已发送、`tool_call_id` 已回传、assistant 轮次已入库
-- [ ] 1.14 解除 `packages/core`、`packages/bff-hono`、`packages/adapter-sqlite` 的 `"private": true`，补齐发布所需元数据（files、repository、license）；不执行 publish
-- [ ] 1.15 更新 agent-kit 的 README 与 `docs/integrations/browser-extension-bff.md`，反映 tools 注入与新增的超时/存储接口
+- [x] 1.1 新增 `packages/core/src/json-schema.ts`：zod → JSON Schema 转换，支持对象、字符串、数值、布尔、枚举、数组、可选字段与嵌套对象；不支持的结构抛带稳定错误码的异常并指明工具名与字段名
+- [x] 1.2 在 `packages/core/src/errors.ts` 的 `AgentKitErrorCode` 中新增所需错误码（Schema 转换失败、工具执行超时、工具结果无法关联调用）
+- [x] 1.3 为 `json-schema.ts` 写单测：覆盖嵌套对象、可选字段的 `required` 正确性、枚举、数组、以及不支持结构抛错
+- [x] 1.4 修 `packages/core/src/llm-client.ts:86-89`：请求体注入 `tools` 字段，内容由工具注册表经 1.1 转换得出；注册表为空时省略该字段
+- [x] 1.5 修 `packages/core/src/llm-client.ts:33-38`：`role: 'tool'` 消息携带 `tool_call_id`；无法关联到已发起调用的工具结果直接拒绝并返回稳定错误码
+- [x] 1.6 扩展 `packages/core/src/contracts.ts:15` 的 `SessionMessage` 支持 `assistant` 角色（含其发起的 tool calls），并在 harness 中持久化每轮 assistant 输出
+- [x] 1.7 修 `packages/core/src/llm-client.ts:51-64`：解析并返回本轮全部 tool calls，不再只取第一个
+- [x] 1.8 修 `packages/core/src/harness.ts`：支持一轮内多个待执行工具调用，全部结果回填后才进入下一轮；其中部分失败时把失败与成功结果一并回传模型，不中断整轮
+- [x] 1.9 给 `ToolDefinition.execute` 增加 `AbortSignal` 参数与超时上限配置；超时以稳定错误码结束该次调用，harness 循环继续
+- [x] 1.10 把 `harness.ts:38` 的进程内 `pendingCalls` Map 抽成可插拔存储接口，保留内存实现为默认；验证进程重启后凭 `callId` 回填仍可关联
+- [x] 1.11 把 `context-manager.ts` 接进 harness 的消息构造流程（当前完全未被调用）；保持 `slice(-maxMessages)` 策略不变，不升级为真摘要
+- [x] 1.12 让 `prompt-registry.ts:11` 的 `RegisteredPrompt.protocol` 在构造请求时被实际读取应用；若判定本次不接入则从公开接口移除该字段
+- [x] 1.13 补 harness 集成测试：用真实（非伪造）的 `LlmClient` 请求体断言 `tools` 已发送、`tool_call_id` 已回传、assistant 轮次已入库
+- [x] 1.14 解除 `packages/core`、`packages/bff-hono`、`packages/adapter-sqlite` 的 `"private": true`，补齐发布所需元数据（files、repository、license）；不执行 publish
+- [x] 1.15 更新 agent-kit 的 README 与 `docs/integrations/browser-extension-bff.md`，反映 tools 注入与新增的超时/存储接口
 
 ## 2. BFF 服务落地
 
-- [ ] 2.1 基于 `@agent-kit/bff-hono` + `@agent-kit/adapter-sqlite` 搭起 BFF 入口，注入 harness 与 `authenticate` 实现
-- [ ] 2.2 BFF 侧持有 Ark（OpenAI Chat 兼容）配置：baseUrl、模型名、API Key，全部从环境变量读取
-- [ ] 2.3 实现启动时校验：缺 `AGENT_KIT_MASTER_KEY` 或 `BFF_API_TOKEN` 时拒绝启动并输出明确的缺失配置提示
-- [ ] 2.4 校验持久化存储中的模型密钥为 AES-256-GCM 密文，且主密钥未被写入存储
-- [ ] 2.5 实现接入鉴权：凭据缺失或不匹配返回 401 `UNAUTHORIZED`，且不发起任何模型调用
-- [ ] 2.6 验证会话按已认证主体隔离：相同 sessionId 在不同主体间历史互不可见；跨主体回填 `callId` 被拒
-- [ ] 2.7 收敛错误响应为 `{ code, requestId, message }` 三项；审查日志确认不含密钥、Prompt 正文、模型原文与业务上下文
-- [ ] 2.8 把候选人评估 prompt（原 `src/services/llmService.ts` 的 `buildBatchPrompt`）迁到 BFF 侧注册，评分口径保持不变
-- [ ] 2.9 在 BFF 侧注册全部远端工具定义（`execution: 'remote'`）：`browser.read_page`、`browser.locate_element`、`browser.click`、`browser.input_text`、`browser.press_key`、`browser.scroll`、`browser.verify`、`browser.screenshot`
-- [ ] 2.10 用 curl 端到端验证 run 与 tool-results 两个接口（此阶段扩展尚未接入）
-- [ ] 2.11 编写 BFF 启动文档：环境变量清单 + 单条启动命令，确保按文档可直接跑起来
+- [x] 2.1 基于 `@agent-kit/bff-hono` + `@agent-kit/adapter-sqlite` 搭起 BFF 入口，注入 harness 与 `authenticate` 实现
+- [x] 2.2 BFF 侧持有 Ark（OpenAI Chat 兼容）配置：baseUrl、模型名、API Key，全部从环境变量读取
+- [x] 2.3 实现启动时校验：缺 `AGENT_KIT_MASTER_KEY` 或 `BFF_API_TOKEN` 时拒绝启动并输出明确的缺失配置提示
+- [x] 2.4 校验持久化存储中的模型密钥为 AES-256-GCM 密文，且主密钥未被写入存储
+- [x] 2.5 实现接入鉴权：凭据缺失或不匹配返回 401 `UNAUTHORIZED`，且不发起任何模型调用
+- [x] 2.6 验证会话按已认证主体隔离：相同 sessionId 在不同主体间历史互不可见；跨主体回填 `callId` 被拒
+- [x] 2.7 收敛错误响应为 `{ code, requestId, message }` 三项；审查日志确认不含密钥、Prompt 正文、模型原文与业务上下文
+- [x] 2.8 把候选人评估 prompt（原 `src/services/llmService.ts` 的 `buildBatchPrompt`）迁到 BFF 侧注册，评分口径保持不变
+- [x] 2.9 在 BFF 侧注册全部远端工具定义（`execution: 'remote'`）：`browser.read_page`、`browser.locate_element`、`browser.click`、`browser.input_text`、`browser.press_key`、`browser.scroll`、`browser.verify`、`browser.screenshot`
+- [x] 2.10 用 curl 端到端验证 run 与 tool-results 两个接口（此阶段扩展尚未接入）
+- [x] 2.11 编写 BFF 启动文档：环境变量清单 + 单条启动命令，确保按文档可直接跑起来
 
 ## 3. 依赖接线
 
-- [ ] 3.1 本项目以 pnpm workspace 或 `file:../agent-kit/packages/core` 方式依赖 `@agent-kit/core`，确认类型与运行时入口均可解析
-- [ ] 3.2 跑 `pnpm run typecheck` 确认 agent-kit 的 `module: NodeNext` 与 WXT/Vite 解析无冲突
-- [ ] 3.3 在文档中记录生产期切换为 npm 版本号依赖的步骤，确认切换后无需改动任何 import 语句
+- [x] 3.1 本项目以 pnpm workspace 或 `file:../agent-kit/packages/core` 方式依赖 `@agent-kit/core`，确认类型与运行时入口均可解析
+- [x] 3.2 跑 `pnpm run typecheck` 确认 agent-kit 的 `module: NodeNext` 与 WXT/Vite 解析无冲突
+- [x] 3.3 在文档中记录生产期切换为 npm 版本号依赖的步骤，确认切换后无需改动任何 import 语句
 
 ## 4. 清单与权限
 
-- [ ] 4.1 `wxt.config.ts:14-16` permissions 新增 `debugger`
-- [ ] 4.2 host_permissions 移除 `ark.cn-beijing.volces.com`，新增 BFF 地址
-- [ ] 4.3 新增 `content_scripts` 声明，匹配目标站点 host 规则
+- [x] 4.1 `wxt.config.ts:14-16` permissions 新增 `debugger`
+- [x] 4.2 host_permissions 移除 `ark.cn-beijing.volces.com`，新增 BFF 地址
+- [x] 4.3 新增 `content_scripts` 声明，匹配目标站点 host 规则
 - [ ] 4.4 验证扩展重载后 attach 成功、content script 自动注入、BFF 请求未被拦截
 
 ## 5. 消息路由层
 
-- [ ] 5.1 在 `entrypoints/background.ts` 建立集中消息路由，消息类型有显式类型定义（当前仅有 `BOOS_GET_LAST_GEEK_LIST_URL` 一种）
-- [ ] 5.2 未知消息类型返回结构化失败结果，指明该类型不受支持，不静默忽略
-- [ ] 5.3 保留 `ServiceResult<T>` 信封（`src/types/page-io.ts:167`），给 `ProviderKind`（`page-io.ts:3`）新增 CDP 通道类型
-- [ ] 5.4 迁移现有 `BOOS_GET_LAST_GEEK_LIST_URL` 到新路由，确认原功能未回归
+- [x] 5.1 在 `entrypoints/background.ts` 建立集中消息路由，消息类型有显式类型定义（当前仅有 `BOOS_GET_LAST_GEEK_LIST_URL` 一种）
+- [x] 5.2 未知消息类型返回结构化失败结果，指明该类型不受支持，不静默忽略
+- [x] 5.3 保留 `ServiceResult<T>` 信封（`src/types/page-io.ts:167`），给 `ProviderKind`（`page-io.ts:3`）新增 CDP 通道类型
+- [x] 5.4 迁移现有 `BOOS_GET_LAST_GEEK_LIST_URL` 到新路由，确认原功能未回归
 
 ## 6. CDP 会话管理
 
-- [ ] 6.1 新增 Service Worker 侧会话管理器：任务开始 `chrome.debugger.attach({ tabId }, '1.3')`，任务期间复用单一会话，不在每个操作前后重复 attach/detach
-- [ ] 6.2 实现四种 detach 触发路径：任务正常完成、任务异常终止、目标标签页关闭、用户主动停止
-- [ ] 6.3 监听 `chrome.debugger.onDetach`，分别处理用户关闭调试横幅、用户打开 DevTools 抢占、标签页被关闭三类断连，各给可读提示并将任务置失败
-- [ ] 6.4 实现单标签页单会话约束：已有活动会话时拒绝新任务并提示已有任务运行中
-- [ ] 6.5 `attach` 因已有其他调试客户端而失败时，返回可读原因并明确提示先关闭 DevTools
-- [ ] 6.6 把会话标识、待执行工具调用与调试会话状态持久化到 `chrome.storage.session`
-- [ ] 6.7 实现 SW 唤醒恢复：能恢复则继续任务；发现原调试会话已断开则清理状态并安全终止，不向失效会话下发命令
+- [x] 6.1 新增 Service Worker 侧会话管理器：任务开始 `chrome.debugger.attach({ tabId }, '1.3')`，任务期间复用单一会话，不在每个操作前后重复 attach/detach
+- [x] 6.2 实现四种 detach 触发路径：任务正常完成、任务异常终止、目标标签页关闭、用户主动停止
+- [x] 6.3 监听 `chrome.debugger.onDetach`，分别处理用户关闭调试横幅、用户打开 DevTools 抢占、标签页被关闭三类断连，各给可读提示并将任务置失败
+- [x] 6.4 实现单标签页单会话约束：已有活动会话时拒绝新任务并提示已有任务运行中
+- [x] 6.5 `attach` 因已有其他调试客户端而失败时，返回可读原因并明确提示先关闭 DevTools
+- [x] 6.6 把会话标识、待执行工具调用与调试会话状态持久化到 `chrome.storage.session`
+- [x] 6.7 实现 SW 唤醒恢复：能恢复则继续任务；发现原调试会话已断开则清理状态并安全终止，不向失效会话下发命令
 
 ## 7. CDP 输入原语
 
-- [ ] 7.1 实现真实点击：`Input.dispatchMouseEvent` 的 `mouseMoved` → `mousePressed` → `mouseReleased` 三段序列，按下与释放携带 `button: 'left'`、`clickCount: 1`
-- [ ] 7.2 三段序列中任一命令失败时中止点击，返回含失败阶段与错误原因的结构化结果
-- [ ] 7.3 实现文本输入：先经 CDP 点击目标输入框建立真实焦点，再调用 `Input.insertText` 写入（含中文）
-- [ ] 7.4 点击输入框后验证焦点确实落在该元素上；未落上则返回失败，不继续写入
-- [ ] 7.5 实现按键：`Input.dispatchKeyEvent` 下发 Enter、Tab、Escape、退格与组合快捷键的 `keyDown` / `keyUp`
-- [ ] 7.6 实现滚动与截图原语
-- [ ] 7.7 加坐标契约单测：断言下发坐标与 `getBoundingClientRect()` 的 CSS 像素一致，且在 `devicePixelRatio > 1` 时未做任何 DPR 缩放
+- [x] 7.1 实现真实点击：`Input.dispatchMouseEvent` 的 `mouseMoved` → `mousePressed` → `mouseReleased` 三段序列，按下与释放携带 `button: 'left'`、`clickCount: 1`
+- [x] 7.2 三段序列中任一命令失败时中止点击，返回含失败阶段与错误原因的结构化结果
+- [x] 7.3 实现文本输入：先经 CDP 点击目标输入框建立真实焦点，再调用 `Input.insertText` 写入（含中文）
+- [x] 7.4 点击输入框后验证焦点确实落在该元素上；未落上则返回失败，不继续写入
+- [x] 7.5 实现按键：`Input.dispatchKeyEvent` 下发 Enter、Tab、Escape、退格与组合快捷键的 `keyDown` / `keyUp`
+- [x] 7.6 实现滚动与截图原语
+- [x] 7.7 加坐标契约单测：断言下发坐标与 `getBoundingClientRect()` 的 CSS 像素一致，且在 `devicePixelRatio > 1` 时未做任何 DPR 缩放
 - [ ] 7.8 在高 DPI 屏上人工验证一次点击落点正确
 
 ## 8. content script：定位与验证
 
-- [ ] 8.1 新增 `entrypoints/content.ts`，职责限定为 DOM 读取、元素定位、坐标计算、结果验证；不含任何写操作代码路径
-- [ ] 8.2 实现 content script 未就绪时的按需注入重试一次，仍失败返回结构化失败结果
-- [ ] 8.3 移植定位策略：用户配置选择器优先、`BOSS_FALLBACK_SELECTORS`（`chromeMcpService.ts:22-25`）兜底，结果标记命中来源
-- [ ] 8.4 全部选择器均未命中时，失败结果中列出已尝试的选择器清单
-- [ ] 8.5 定位结果返回元素中心坐标、元素矩形、是否在视口内、是否可见、是否被遮挡
-- [ ] 8.6 元素不在视口内时先滚入视口再重算坐标后返回
-- [ ] 8.7 实现遮挡判定：中心点命中测试返回的不是目标元素或其子元素时，返回遮挡标记与遮挡元素信息
-- [ ] 8.8 子 frame 内元素的坐标逐层叠加 frame 偏移，换算为相对主页面 viewport 的坐标
-- [ ] 8.9 保住跨 frame 读取的「聚合取最优」：沿用 `pickBestInjectionResult`（`chromeMcpService.ts:114`）的打分聚合，记录被选中的 frame 标识，不退化为只读主 frame
+- [x] 8.1 新增 `entrypoints/content.ts`，职责限定为 DOM 读取、元素定位、坐标计算、结果验证；不含任何写操作代码路径
+- [x] 8.2 实现 content script 未就绪时的按需注入重试一次，仍失败返回结构化失败结果
+- [x] 8.3 移植定位策略：用户配置选择器优先、`BOSS_FALLBACK_SELECTORS`（`chromeMcpService.ts:22-25`）兜底，结果标记命中来源
+- [x] 8.4 全部选择器均未命中时，失败结果中列出已尝试的选择器清单
+- [x] 8.5 定位结果返回元素中心坐标、元素矩形、是否在视口内、是否可见、是否被遮挡
+- [x] 8.6 元素不在视口内时先滚入视口再重算坐标后返回
+- [x] 8.7 实现遮挡判定：中心点命中测试返回的不是目标元素或其子元素时，返回遮挡标记与遮挡元素信息
+- [x] 8.8 子 frame 内元素的坐标逐层叠加 frame 偏移，换算为相对主页面 viewport 的坐标
+- [x] 8.9 保住跨 frame 读取的「聚合取最优」：沿用 `pickBestInjectionResult`（`chromeMcpService.ts:114`）的打分聚合，记录被选中的 frame 标识，不退化为只读主 frame
 
 ## 9. 结果验证器
 
-- [ ] 9.1 实现轮询等待：条件提前满足立即返回，达超时上限则返回含中间状态的超时失败；不使用固定 `setTimeout` 作为唯一等待手段
-- [ ] 9.2 实现验证维度：目标弹窗是否出现
-- [ ] 9.3 实现验证维度：相关 DOM 状态或文案是否变化
-- [ ] 9.4 实现验证维度：输入框当前值与期望文本是否一致
-- [ ] 9.5 实现验证维度：目标提交按钮是否变为可用（检测 disabled 属性与禁用类名）
-- [ ] 9.6 实现验证维度：基于 CDP `Network` 域事件观测相关请求是否发出、URL/方法/响应状态码
-- [ ] 9.7 预期请求在等待窗口内未发出时判定验证失败并返回该原因
-- [ ] 9.8 命令成功但所有维度均未观测到预期变化时判定为失败，返回各维度实际观测值
-- [ ] 9.9 在 CDP `Network` 观测上重建等价诊断能力，替代 `startFavoriteNetworkRecording` / `stopFavoriteNetworkRecording` / `replayFavoriteNetworkRequests`（`chromeMcpService.ts:914/1231/1369`）
-- [ ] 9.10 更新 `src/services/diagnosticService.ts` 探针，覆盖 attach 状态与 CDP 可用性
+- [x] 9.1 实现轮询等待：条件提前满足立即返回，达超时上限则返回含中间状态的超时失败；不使用固定 `setTimeout` 作为唯一等待手段
+- [x] 9.2 实现验证维度：目标弹窗是否出现
+- [x] 9.3 实现验证维度：相关 DOM 状态或文案是否变化
+- [x] 9.4 实现验证维度：输入框当前值与期望文本是否一致
+- [x] 9.5 实现验证维度：目标提交按钮是否变为可用（检测 disabled 属性与禁用类名）
+- [x] 9.6 实现验证维度：基于 CDP `Network` 域事件观测相关请求是否发出、URL/方法/响应状态码
+- [x] 9.7 预期请求在等待窗口内未发出时判定验证失败并返回该原因
+- [x] 9.8 命令成功但所有维度均未观测到预期变化时判定为失败，返回各维度实际观测值
+- [x] 9.9 在 CDP `Network` 观测上重建等价诊断能力，替代 `startFavoriteNetworkRecording` / `stopFavoriteNetworkRecording` / `replayFavoriteNetworkRequests`（`chromeMcpService.ts:914/1231/1369`）
+- [x] 9.10 更新 `src/services/diagnosticService.ts` 探针，覆盖 attach 状态与 CDP 可用性
 
 ## 10. Tool Host 协议
 

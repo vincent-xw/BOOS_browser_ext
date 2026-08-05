@@ -25,6 +25,23 @@
 
 > 本项目约定使用 `pnpm`，不要使用 npm/yarn。
 
+## agent-kit 依赖
+
+agent 能力来自同级仓库 `agent-kit`。开发期通过本地路径依赖，便于两侧改动即时联调：
+
+```json
+"@agent-kit/core": "file:../agent-kit/packages/core"
+```
+
+生产期改为 npm 版本号依赖。切换步骤：
+
+1. 在 `agent-kit` 仓库执行 `pnpm build`，确认 `packages/*/dist` 产物齐全。
+2. 在各包目录执行 `pnpm publish`（包已解除 `private`，并带 `publishConfig.access: public`）。
+3. 本项目把 `file:../agent-kit/packages/core` 换成对应版本号，例如 `"@agent-kit/core": "^0.1.0"`。
+4. `pnpm install && pnpm run typecheck`。
+
+切换前后 **无需改动任何 `import` 语句** —— 两种方式解析到的都是 `@agent-kit/core` 这个包名。
+
 ## 配置说明
 
 在 popup 右上角点击“设置”可配置：

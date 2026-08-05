@@ -3,6 +3,8 @@
  * 不依赖 MCP，直接用 chrome.scripting 测试
  */
 
+import { MessageType } from '../types/messages';
+
 export interface DiagnosticResult {
   canQueryActiveTab: boolean;
   canExecuteScript: boolean;
@@ -10,6 +12,13 @@ export interface DiagnosticResult {
   candidateCount: number;
   sampleNames: string[];
   hostPermissionOk: boolean;
+  /** debugger 权限是否已授予。没有它所有页面写操作都不可用。 */
+  debuggerPermissionOk: boolean;
+  /** 该标签页当前是否已挂调试器，以及是否被其他客户端占用。 */
+  debuggerAttached: boolean;
+  debuggerOccupiedByOther: boolean;
+  /** content script 是否已就绪。定位与验证都依赖它。 */
+  contentScriptReady: boolean;
   error: string | null;
   details: Record<string, any>;
 }
@@ -114,6 +123,51 @@ async function testExecuteScript(tabId: number): Promise<{
   }
 }
 
+/**
+ * 探测 CDP 可用性。
+ * 三件事要分清：权限有没有、当前标签页是否已挂调试器、是否被别的客户端（DevTools）占用。
+ * 这三种情况的处置完全不同，混在一起报告用户无从下手。
+ */
+async function probeDebugger(tabId: number): Promise<{
+  permissionOk: boolean;
+  attached: boolean;
+  occupiedByOther: boolean;
+  detail: Record<string, unknown>;
+}> {
+  const permissionOk = Boolean(chrome?.debugger?.getTargets);
+  if (!permissionOk) {
+    return { permissionOk: false, attached: false, occupiedByOther: false, detail: { reason: 'debugger API 不可用，请确认清单已声明 debugger 权限' } };
+  }
+  try {
+    const targets = await chrome.debugger.getTargets();
+    const target = targets.find((item) => item.tabId === tabId);
+    return {
+      permissionOk: true,
+      attached: Boolean(target?.attached),
+      // attached 为真但不是我们挂的，就是被 DevTools 之类占用了 —— 同一标签页只允许一个调试客户端。
+      occupiedByOther: Boolean(target?.attached),
+      detail: { targetFound: Boolean(target), attached: target?.attached ?? false, targetType: target?.type },
+    };
+  } catch (error) {
+    return {
+      permissionOk: true,
+      attached: false,
+      occupiedByOther: false,
+      detail: { error: error instanceof Error ? error.message : String(error) },
+    };
+  }
+}
+
+/** 探测 content script 是否就绪。 */
+async function probeContentScript(tabId: number): Promise<{ ready: boolean; detail: Record<string, unknown> }> {
+  try {
+    const response = await chrome.tabs.sendMessage(tabId, { type: MessageType.ContentPing, tabId });
+    return { ready: Boolean((response as { ok?: boolean } | undefined)?.ok), detail: { response } };
+  } catch (error) {
+    return { ready: false, detail: { error: error instanceof Error ? error.message : String(error) } };
+  }
+}
+
 export async function runDiagnostics(): Promise<DiagnosticResult> {
   const result: DiagnosticResult = {
     canQueryActiveTab: false,
@@ -122,6 +176,10 @@ export async function runDiagnostics(): Promise<DiagnosticResult> {
     candidateCount: 0,
     sampleNames: [],
     hostPermissionOk: false,
+    debuggerPermissionOk: false,
+    debuggerAttached: false,
+    debuggerOccupiedByOther: false,
+    contentScriptReady: false,
     error: null,
     details: {},
   };
@@ -137,7 +195,16 @@ export async function runDiagnostics(): Promise<DiagnosticResult> {
     result.canQueryActiveTab = true;
     result.details.activeTabUrl = tab.url;
 
-    // 2. Check if we can execute script
+    // 2. CDP 与 content script 探针：页面写操作与定位分别依赖这两者。
+    const [debuggerProbe, contentProbe] = await Promise.all([probeDebugger(tab.id), probeContentScript(tab.id)]);
+    result.debuggerPermissionOk = debuggerProbe.permissionOk;
+    result.debuggerAttached = debuggerProbe.attached;
+    result.debuggerOccupiedByOther = debuggerProbe.occupiedByOther;
+    result.contentScriptReady = contentProbe.ready;
+    result.details.debugger = debuggerProbe.detail;
+    result.details.contentScript = contentProbe.detail;
+
+    // 3. Check if we can execute script
     const scriptResult = await testExecuteScript(tab.id);
     if (!scriptResult.ok) {
       result.error = `脚本注入失败：${scriptResult.error}`;
@@ -148,7 +215,7 @@ export async function runDiagnostics(): Promise<DiagnosticResult> {
     result.canExecuteScript = true;
     result.details.injectionData = scriptResult.data;
 
-    // 3. Parse the injection result
+    // 4. Parse the injection result
     const data = scriptResult.data;
     result.candidateCount = data.listItemCount ?? 0;
     result.sampleNames = data.sampleNames ?? [];
@@ -190,6 +257,16 @@ export function formatDiagnosticResult(result: DiagnosticResult): string {
   }
 
   lines.push(`✓ Host 权限检查：${result.hostPermissionOk ? '已授予' : '未授予'}`);
+
+  lines.push('');
+  lines.push('=== CDP 真实交互能力 ===');
+  lines.push(`✓ debugger 权限：${result.debuggerPermissionOk ? '已授予' : '未授予（页面写操作不可用）'}`);
+  if (result.debuggerOccupiedByOther) {
+    lines.push('  ⚠ 该标签页已被调试客户端占用。同一标签页只允许一个调试器——如果不是本插件挂的，请先关闭 DevTools。');
+  } else {
+    lines.push('  当前未挂调试器（启动任务时会自动 attach）');
+  }
+  lines.push(`✓ content script 就绪：${result.contentScriptReady ? '是' : '否（请刷新目标页面）'}`);
 
   if (result.error) {
     lines.push(`\n❌ 诊断错误：${result.error}`);

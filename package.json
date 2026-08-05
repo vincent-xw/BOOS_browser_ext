@@ -8,9 +8,12 @@
     "dev:chrome": "wxt -b chrome",
     "build": "wxt build",
     "zip": "wxt zip",
-    "typecheck": "vue-tsc --noEmit"
+    "typecheck": "vue-tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
+    "@agent-kit/core": "file:../agent-kit/packages/core",
+    "@element-plus/icons-vue": "^2.3.2",
     "element-plus": "^2.13.7",
     "vue": "^3.5.33",
     "xlsx": "^0.18.5"
@@ -20,6 +23,7 @@
     "@wxt-dev/module-vue": "^1.0.3",
     "sass": "^1.99.0",
     "typescript": "^6.0.3",
+    "vitest": "3.2.4",
     "vue-tsc": "^3.2.7",
     "wxt": "^0.20.25"
   },
