@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { onMounted } from 'vue';
+import { computed, onMounted } from 'vue';
+import { ArrowDown, Delete } from '@element-plus/icons-vue';
 import { useFreeFormController } from '../composables/useFreeFormController';
 import type { GrantScope } from '../agent/approvalGate';
 
@@ -9,6 +10,8 @@ const {
   instruction,
   turns,
   currentSteps,
+  sessions,
+  sessionId,
   currentUrl,
   currentTitle,
   urlAllowed,
@@ -20,12 +23,16 @@ const {
   deny,
   submitInstruction,
   stop,
-  newSession,
+  startNewSession,
+  switchSession,
+  removeSession,
+  refreshSessions,
   refreshPageContext,
 } = useFreeFormController();
 
 onMounted(() => {
   void refreshPageContext();
+  void refreshSessions();
 });
 
 /** 审批档位。域名级授权带上当前域名，让用户清楚授权范围。 */
@@ -39,6 +46,24 @@ function currentHost(): string {
 
 function onApprove(scope: GrantScope) {
   approve(scope);
+}
+
+/** 当前会话在列表中的序号（1 起）。用于按钮文案。 */
+const sessionIndex = computed(() => {
+  const index = sessions.value.findIndex((session) => session.id === sessionId.value);
+  return index >= 0 ? index + 1 : sessions.value.length + 1;
+});
+
+function handleSessionCommand(command: string | number | object) {
+  if (command === '__new__') {
+    startNewSession();
+    return;
+  }
+  if (typeof command === 'string') void switchSession(command);
+}
+
+function handleDeleteSession(id: string) {
+  void removeSession(id);
 }
 
 /** 步骤输出的简短摘要。失败与被拒的步骤要能一眼看出。 */
@@ -62,8 +87,31 @@ function stepSummary(output: unknown): { text: string; type: 'success' | 'warnin
           <el-tag :type="urlAllowed ? 'success' : 'warning'" effect="plain" size="small">
             {{ urlAllowed ? '当前页面已允许' : '当前页面未允许' }}
           </el-tag>
+          <!-- 会话列表：切回旧会话继续多轮上下文。sessionId 是 BFF 侧历史的钥匙。 -->
+          <el-dropdown v-if="sessions.length" trigger="click" @command="handleSessionCommand">
+            <el-button link size="small" :disabled="isBusy">
+              会话 {{ sessionIndex }}
+              <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+            </el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item
+                  v-for="(session, index) in sessions"
+                  :key="session.id"
+                  :command="session.id"
+                  :disabled="session.id === sessionId"
+                >
+                  <span class="session-item">
+                    <span class="session-title">{{ session.title }}</span>
+                    <el-icon class="session-delete" @click.stop="handleDeleteSession(session.id)"><Delete /></el-icon>
+                  </span>
+                </el-dropdown-item>
+                <el-dropdown-item divided :command="'__new__'" :disabled="isBusy">＋ 新会话</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+          <el-button v-else link size="small" :disabled="isBusy" @click="startNewSession">新会话</el-button>
           <el-button link size="small" @click="refreshPageContext">刷新</el-button>
-          <el-button link size="small" :disabled="isBusy" @click="newSession">新会话</el-button>
         </el-space>
       </div>
     </template>
@@ -171,6 +219,25 @@ function stepSummary(output: unknown): { text: string; type: 'success' | 'warnin
 </template>
 
 <style scoped>
+.session-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 160px;
+}
+
+.session-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
+}
+
+.session-delete {
+  color: var(--el-color-danger);
+}
+
 .panel-header {
   display: flex;
   align-items: center;

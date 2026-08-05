@@ -8,6 +8,14 @@ import { createMessageSender } from '../agent/toolExecutor';
 import { cdpActionService } from '../services/cdpActionService';
 import { toBffConfig } from '../services/llmService';
 import { loadAllowRules } from '../services/permissionService';
+import {
+  deleteSession,
+  getSession,
+  loadSessions,
+  newSessionId,
+  saveSession,
+} from '../services/freeFormSessionStore';
+import type { ConversationTurn, StoredSession } from '../services/freeFormSessionStore';
 import { isUrlAllowed } from '../services/urlAllowlist';
 import { settingsService } from '../services/settingsService';
 import { MessageType } from '../types/messages';
@@ -23,15 +31,6 @@ import type { OperationError, OperationState } from '../types/page-io';
  * 所以「点第三条结果」「回到上一页」这类指代才成立。
  */
 
-/** 对话中的一条消息。 */
-export interface ConversationTurn {
-  role: 'user' | 'agent' | 'error';
-  text: string
-  timestamp: string;
-  /** 该轮执行的步骤，仅 agent 轮次有。 */
-  steps?: StepEvent[];
-}
-
 export function useFreeFormController() {
   const send = createMessageSender();
 
@@ -41,6 +40,8 @@ export function useFreeFormController() {
   const turns = ref<ConversationTurn[]>([]);
   const currentSteps = ref<StepEvent[]>([]);
   const sessionId = ref(newSessionId());
+  /** 会话列表。持久化在 chrome.storage.local，切回旧会话靠它拿到 sessionId。 */
+  const sessions = ref<StoredSession[]>([]);
   const currentUrl = ref('');
   const currentTitle = ref('');
   const urlAllowed = ref(false);
@@ -163,6 +164,38 @@ export function useFreeFormController() {
       ...turns.value,
       { role, text, timestamp: new Date().toISOString(), ...(steps && steps.length ? { steps: [...steps] } : {}) },
     ];
+    // 每轮都落库：sessionId 是切回旧会话的唯一凭据，丢了它 BFF 侧的上下文就不可达了。
+    void saveSession({ id: sessionId.value, turns: turns.value });
+  }
+
+  /** 刷新会话列表。 */
+  async function refreshSessions(): Promise<void> {
+    sessions.value = await loadSessions();
+  }
+
+  /**
+   * 切到另一个会话。
+   * 恢复 turns 只是为了展示；真正让多轮指代继续成立的是 sessionId ——
+   * BFF 会按这个 id 从 SQLite 里取回完整历史。
+   */
+  async function switchSession(id: string): Promise<void> {
+    if (isBusy.value || id === sessionId.value) return;
+    const target = await getSession(id);
+    if (!target) return;
+    sessionId.value = target.id;
+    turns.value = [...target.turns];
+    currentSteps.value = [];
+    runState.value = 'idle';
+    runError.value = null;
+    // 会话级授权不跨会话沿用：切过去等于换了一个上下文，重新征询更安全。
+    approvalGate.resetSession();
+  }
+
+  /** 删除一个会话。删的是当前会话时同时开一个新的。 */
+  async function removeSession(id: string): Promise<void> {
+    await deleteSession(id);
+    await refreshSessions();
+    if (id === sessionId.value) startNewSession();
   }
 
   /** 停止当前任务。 */
@@ -173,14 +206,18 @@ export function useFreeFormController() {
     await cdpActionService.detach();
   }
 
-  /** 开新会话：清空上下文与会话级授权。 */
-  function newSession(): void {
+  /**
+   * 开新会话。
+   * 只切换到新 id，不删除旧会话 —— 旧会话仍在列表里，可以切回去继续。
+   */
+  function startNewSession(): void {
     sessionId.value = newSessionId();
     turns.value = [];
     currentSteps.value = [];
     runState.value = 'idle';
     runError.value = null;
     approvalGate.resetSession();
+    void refreshSessions();
   }
 
   return {
@@ -190,6 +227,7 @@ export function useFreeFormController() {
     turns,
     currentSteps,
     sessionId,
+    sessions,
     currentUrl,
     currentTitle,
     urlAllowed,
@@ -201,15 +239,14 @@ export function useFreeFormController() {
     deny,
     submitInstruction,
     stop,
-    newSession,
+    startNewSession,
+    switchSession,
+    removeSession,
+    refreshSessions,
     refreshPageContext,
     summarizeAction,
     MessageType,
   };
-}
-
-function newSessionId(): string {
-  return `free-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
 /** 模型最终输出可能是字符串或结构化对象，统一转为可读文本。 */
