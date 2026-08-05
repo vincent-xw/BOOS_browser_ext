@@ -1,53 +1,15 @@
-import type {
-  CandidateSummary,
-} from '../types/page-io';
+import { runAgent } from '../agent/agentClient';
+import type { BffConfig } from '../agent/agentClient';
+import type { CandidateSummary } from '../types/page-io';
 import type { AppSettings } from '../types/settings';
 
-function maskApiKey(key: string): string {
-  if (!key) {
-    return '';
-  }
-
-  if (key.length <= 10) {
-    return `${key.slice(0, 2)}***${key.slice(-2)}`;
-  }
-
-  return `${key.slice(0, 6)}***${key.slice(-4)}`;
-}
-
-function shortenText(text: string, max = 800): string {
-  if (!text) {
-    return '';
-  }
-
-  return text.length > max ? `${text.slice(0, max)}... (len=${text.length})` : text;
-}
-
-function extractErrorMessage(payload: unknown, fallbackText: string): string {
-  if (payload && typeof payload === 'object') {
-    const obj = payload as Record<string, unknown>;
-    const direct = obj.error;
-    if (typeof direct === 'string' && direct.trim()) {
-      return direct.trim();
-    }
-
-    if (direct && typeof direct === 'object') {
-      const nested = direct as Record<string, unknown>;
-      if (typeof nested.message === 'string' && nested.message.trim()) {
-        return nested.message.trim();
-      }
-      if (typeof nested.code === 'string' && nested.code.trim()) {
-        return `code=${nested.code}`;
-      }
-    }
-
-    if (typeof obj.message === 'string' && obj.message.trim()) {
-      return obj.message.trim();
-    }
-  }
-
-  return shortenText(fallbackText, 280) || '无响应错误信息';
-}
+/**
+ * 候选人评估。
+ *
+ * 扩展不再直连模型：Endpoint、模型名与 API Key 全部由 BFF 持有。
+ * 评估 prompt 与输出协议也在 BFF 侧注册（见 agent-kit 的 browser-tools.ts），
+ * 因此这里不再需要手写 JSON 解析与容错 —— 协议校验在 BFF 完成。
+ */
 
 export interface LlmBatchAssessmentItem {
   index: number;
@@ -60,203 +22,63 @@ export interface LlmBatchAssessmentResult {
   rawText: string;
 }
 
-function buildBatchPrompt(userPrompt: string, candidates: CandidateSummary[]): string {
-  const candidateLines = candidates.map((candidate) => ({
-    index: candidate.index,
-    name: candidate.name,
-    previewText: candidate.previewText,
-  }));
-
-  return [
-    '你是招聘助手。请根据用户策略，判断候选人列表中每个候选人是否“建议跟进”。',
-    '必须返回严格 JSON（不要 markdown，不要代码块，不要解释文字）。',
-    'JSON 格式必须为：{"decisions":[{"index":0,"shouldFavorite":true,"reason":"..."}]}',
-    'index 必须对应输入中的候选人 index；每个候选人都必须有一条 decision。',
-    'reason 请简洁，中文，不超过50字。',
-    '',
-    `用户策略Prompt：\n${userPrompt}`,
-    '',
-    `候选人列表(JSON)：\n${JSON.stringify(candidateLines, null, 2)}`,
-  ].join('\n');
+/** 从设置构造 BFF 连接配置。 */
+export function toBffConfig(settings: AppSettings): BffConfig {
+  return {
+    baseUrl: settings.advanced.bffBaseUrl,
+    apiToken: settings.advanced.bffApiToken,
+    requestTimeoutMs: settings.advanced.bffRequestTimeoutMs,
+  };
 }
 
-function normalizeBatchDecisionText(
-  text: string,
-  candidates: CandidateSummary[],
-): LlmBatchAssessmentResult {
-  const trimmed = text.trim();
-  const candidateIndexes = new Set(candidates.map((candidate) => candidate.index));
+function ensureBffConfig(settings: AppSettings): { ok: true } | { ok: false; message: string } {
+  if (!settings.advanced.bffBaseUrl) return { ok: false, message: '未配置 BFF 地址，请在高级设置中填写。' };
+  if (!settings.advanced.bffApiToken) return { ok: false, message: '未配置 BFF 接入 token，请在高级设置中填写。' };
+  return { ok: true };
+}
 
-  const toShouldFavorite = (value: unknown): boolean => {
-    if (typeof value === 'boolean') {
-      return value;
-    }
-    if (typeof value === 'string') {
-      const lower = value.toLowerCase();
-      return ['true', 'yes', '1', 'favorite', 'collect', 'follow', '建议', '推荐'].some((token) =>
-        lower.includes(token),
-      );
-    }
-    if (typeof value === 'number') {
-      return value > 0;
-    }
-    return false;
-  };
+/**
+ * 把模型输出规整为决策列表。
+ *
+ * BFF 已按输出协议校验过结构，这里只做「补齐缺失候选人」这一件事：
+ * 模型漏判某个候选人时要有明确的兜底，而不是让该候选人从结果里消失。
+ */
+function normalizeDecisions(output: unknown, candidates: CandidateSummary[]): LlmBatchAssessmentResult {
+  const rawText = typeof output === 'string' ? output : JSON.stringify(output);
+  const parsed = (typeof output === 'string' ? safeParse(output) : output) as
+    | { decisions?: Array<{ index?: unknown; shouldFavorite?: unknown; reason?: unknown }> }
+    | null;
 
-  try {
-    const json = JSON.parse(trimmed) as {
-      decisions?: Array<Record<string, unknown>>;
-    };
-    const decisionsRaw = Array.isArray(json.decisions) ? json.decisions : [];
-    const normalized = decisionsRaw
-      .map((item) => {
-        const rawIndex = item.index ?? item.candidateIndex;
-        const index = typeof rawIndex === 'number' ? rawIndex : Number(rawIndex);
-        if (!Number.isFinite(index) || !candidateIndexes.has(index)) {
-          return null;
-        }
+  const byIndex = new Map<number, LlmBatchAssessmentItem>();
+  for (const item of parsed?.decisions ?? []) {
+    const index = typeof item.index === 'number' ? item.index : Number(item.index);
+    if (!Number.isFinite(index)) continue;
+    byIndex.set(index, {
+      index,
+      shouldFavorite: item.shouldFavorite === true,
+      reason: typeof item.reason === 'string' && item.reason.trim() ? item.reason.trim() : '模型未给出理由。',
+    });
+  }
 
-        const shouldFavorite = toShouldFavorite(
-          item.shouldFavorite ?? item.favorite ?? item.decision,
-        );
-        const reason =
-          typeof item.reason === 'string' && item.reason.trim()
-            ? item.reason.trim()
-            : shouldFavorite
-              ? '模型建议跟进。'
-              : '模型建议暂不跟进。';
-
-        return {
-          index,
-          shouldFavorite,
-          reason,
-        };
-      })
-      .filter((item): item is LlmBatchAssessmentItem => Boolean(item));
-
-    const byIndex = new Map<number, LlmBatchAssessmentItem>();
-    for (const decision of normalized) {
-      byIndex.set(decision.index, decision);
-    }
-
-    const merged = candidates.map((candidate) => {
-      return (
+  return {
+    decisions: candidates.map(
+      (candidate) =>
         byIndex.get(candidate.index) ?? {
           index: candidate.index,
           shouldFavorite: false,
           reason: '模型未返回该候选人的判断。',
-        }
-      );
-    });
-
-    return {
-      decisions: merged,
-      rawText: trimmed,
-    };
-  } catch {
-    return {
-      decisions: candidates.map((candidate) => ({
-        index: candidate.index,
-        shouldFavorite: false,
-        reason: '模型输出未解析为有效 JSON。',
-      })),
-      rawText: trimmed,
-    };
-  }
+        },
+    ),
+    rawText,
+  };
 }
 
-async function requestWithTimeout(
-  endpoint: string,
-  init: RequestInit,
-  timeoutMs: number,
-): Promise<Response> {
-  const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
-
+function safeParse(text: string): unknown {
   try {
-    return await fetch(endpoint, { ...init, signal: controller.signal });
-  } finally {
-    window.clearTimeout(timer);
+    return JSON.parse(text);
+  } catch {
+    return null;
   }
-}
-
-function extractContentFromPayload(payload: unknown): string {
-  if (typeof payload === 'string') {
-    return payload;
-  }
-
-  if (!payload || typeof payload !== 'object') {
-    return '';
-  }
-
-  const root = payload as Record<string, unknown>;
-  if (typeof root.output_text === 'string') {
-    return root.output_text;
-  }
-
-  const output = root.output;
-  if (Array.isArray(output)) {
-    const pieces: string[] = [];
-    for (const item of output) {
-      if (!item || typeof item !== 'object') {
-        continue;
-      }
-
-      const content = (item as Record<string, unknown>).content;
-      if (!Array.isArray(content)) {
-        continue;
-      }
-
-      for (const contentItem of content) {
-        if (!contentItem || typeof contentItem !== 'object') {
-          continue;
-        }
-        const text = (contentItem as Record<string, unknown>).text;
-        if (typeof text === 'string' && text.trim()) {
-          pieces.push(text);
-        }
-      }
-    }
-
-    if (pieces.length) {
-      return pieces.join('\n');
-    }
-  }
-
-  if (typeof root.output === 'string') {
-    return root.output;
-  }
-
-  const choices = root.choices;
-  if (Array.isArray(choices) && choices.length > 0) {
-    const first = choices[0] as Record<string, unknown>;
-    const message = first.message as Record<string, unknown> | undefined;
-    if (message && typeof message.content === 'string') {
-      return message.content;
-    }
-
-    if (typeof first.text === 'string') {
-      return first.text;
-    }
-  }
-
-  if (typeof root.content === 'string') {
-    return root.content;
-  }
-
-  return '';
-}
-
-function ensureLlmConfig(settings: AppSettings): { ok: true } | { ok: false; message: string } {
-  if (!settings.advanced.llmApiEndpoint) {
-    return { ok: false, message: '未配置大模型 API Endpoint。' };
-  }
-
-  if (!settings.advanced.llmApiKey) {
-    return { ok: false, message: '未配置大模型 API Key。' };
-  }
-
-  return { ok: true };
 }
 
 export const llmService = {
@@ -265,94 +87,27 @@ export const llmService = {
     userPrompt: string,
     candidates: CandidateSummary[],
   ): Promise<LlmBatchAssessmentResult> {
-    const configState = ensureLlmConfig(settings);
-    if (!configState.ok) {
-      throw new Error(configState.message);
-    }
+    const configState = ensureBffConfig(settings);
+    if (!configState.ok) throw new Error(configState.message);
 
-    if (!candidates.length) {
-      return {
-        decisions: [],
-        rawText: '',
-      };
-    }
+    if (!candidates.length) return { decisions: [], rawText: '' };
 
-    const body = {
-      model: settings.advanced.llmModel,
-      input: [
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'input_text',
-              text: buildBatchPrompt(userPrompt, candidates),
-            },
-          ],
-        },
-      ],
-      temperature: 0.1,
-    };
-
-    const requestId = `llm-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
-    console.groupCollapsed(`[BOOS LLM][${requestId}] request`);
-    console.log('endpoint', settings.advanced.llmApiEndpoint);
-    console.log('model', settings.advanced.llmModel);
-    console.log('candidateCount', candidates.length);
-    console.log('timeoutMs', settings.advanced.llmRequestTimeoutMs);
-    console.log('authorization', `Bearer ${maskApiKey(settings.advanced.llmApiKey)}`);
-    console.log('bodyPreview', {
-      model: body.model,
-      inputCount: body.input.length,
-      promptPreview: shortenText(body.input[0]?.content?.[0]?.text || '', 500),
+    const sessionId = `assess-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+    const result = await runAgent(toBffConfig(settings), sessionId, userPrompt, {
+      task: 'candidate-assessment',
+      candidates: candidates.map((candidate) => ({
+        index: candidate.index,
+        name: candidate.name,
+        previewText: candidate.previewText,
+      })),
     });
-    console.groupEnd();
 
-    const response = await requestWithTimeout(
-      settings.advanced.llmApiEndpoint,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${settings.advanced.llmApiKey}`,
-        },
-        body: JSON.stringify(body),
-      },
-      settings.advanced.llmRequestTimeoutMs,
-    );
-
-    const responseText = await response.text().catch(() => '');
-    let payload: unknown = null;
-    if (responseText) {
-      try {
-        payload = JSON.parse(responseText);
-      } catch {
-        payload = responseText;
-      }
+    // 评估任务不应触发工具调用；若模型意外要求工具，视为配置或 prompt 问题。
+    if (result.type !== 'final') {
+      throw new Error(`候选人评估收到了意外的工具调用请求（${result.calls.map((call) => call.toolName).join('、')}），请检查 BFF 侧 prompt 配置。`);
     }
 
-    if (!response.ok) {
-      const detail = extractErrorMessage(payload, responseText);
-      console.groupCollapsed(`[BOOS LLM][${requestId}] response HTTP ${response.status}`);
-      console.log('ok', response.ok);
-      console.log('status', response.status);
-      console.log('responsePreview', shortenText(responseText, 1200));
-      console.groupEnd();
-      throw new Error(`LLM 请求失败（HTTP ${response.status}）：${detail}`);
-    }
-
-    console.groupCollapsed(`[BOOS LLM][${requestId}] response HTTP ${response.status}`);
-    console.log('ok', response.ok);
-    console.log('status', response.status);
-    console.log('responsePreview', shortenText(responseText, 1200));
-    console.groupEnd();
-
-    const content = extractContentFromPayload(payload);
-
-    if (!content.trim()) {
-      throw new Error('LLM 返回内容为空，无法进行候选人列表评估。');
-    }
-
-    return normalizeBatchDecisionText(content, candidates);
+    return normalizeDecisions(result.output, candidates);
   },
 };
 

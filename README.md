@@ -7,13 +7,15 @@
 - 目标站点检测：检测当前标签页域名是否匹配（默认 `www.zhipin.com`）
 - 设置中心：
 	- 基础设置（域名、候选人列表/简历/收藏按钮选择器）
-	- 高级设置（LLM API Endpoint、API Key、模型、超时）
-	- 全部持久化到 `localStorage`
-- 主界面重构：右上角设置入口 + Prompt 输入 + 流程执行按钮
-- 自动化编排：候选人列表读取、详情打开、简历抓取、收藏点击
-- LLM 决策：将 `Prompt + 候选人摘要 + 简历文本` 发送到模型并解析收藏决策
-- 反检测节流：每位候选人处理后随机等待 1-5 秒
-- 失败可观测：站点不匹配、读取失败、LLM 失败等均有可读反馈
+	- 高级设置（BFF 地址、接入 token、超时）
+	- 全部持久化到 `localStorage`（不含任何模型凭据）
+- 主界面：右上角设置入口 + Prompt 输入 + 流程执行按钮
+- 页面交互：经 `chrome.debugger` + CDP 下发真实点击、中文输入与按键
+- 单步闭环：每步重新定位 → 一个写动作 → 多维度验证 → 再下一步
+- 结果验证：弹窗出现、DOM 变化、输入框内容、按钮可用性、网络请求是否成功返回
+- agent 决策：经 BFF 调用模型判断候选人是否值得跟进（扩展不持有模型凭据）
+- 反检测节流：每位候选人处理后随机等待
+- 失败可观测：站点不匹配、定位失败、验证不通过、调试连接断开等均有可读反馈
 
 ## 开发命令（pnpm）
 
@@ -44,7 +46,7 @@ agent 能力来自同级仓库 `agent-kit`。开发期通过本地路径依赖�
 
 ## 配置说明
 
-在 popup 右上角点击“设置”可配置：
+在侧边栏右上角点击“设置”可配置：
 
 ### 基础设置
 
@@ -56,18 +58,48 @@ agent 能力来自同级仓库 `agent-kit`。开发期通过本地路径依赖�
 
 ### 高级设置
 
-- `llmApiEndpoint`：大模型接口地址（建议兼容 Chat Completions）
-- `llmApiKey`：调用密钥（保存在 `localStorage`）
-- `llmModel`：模型名
-- `llmRequestTimeoutMs`：模型请求超时
+- `bffBaseUrl`：BFF 服务地址（默认 `http://localhost:8787`）
+- `bffApiToken`：BFF 接入 token，**不是** LLM API Key
+- `bffRequestTimeoutMs`：BFF 请求超时
 - `perCandidateTimeoutMs`：单候选人处理超时
+
+设置面板提供「检查 BFF 连通性」按钮，失败时会区分「地址不可达」与「凭据无效」。
+
+> 模型 Endpoint、模型名与 API Key **不在扩展中配置** —— 它们只存在于 BFF 进程环境。
+> 从旧版本升级时，扩展会自动清除 `localStorage` 里遗留的 API Key，需要把该 Key
+> 重新配置到 BFF 的 `LLM_API_KEY` 环境变量。
+
+## BFF 服务
+
+agent 能力需要一个本地 BFF 进程。它持有模型配置并注册远端工具，扩展只作为 Tool Host。
+
+```bash
+cd ../agent-kit && pnpm install && pnpm --filter browser-extension-bff build
+```
+
+```bash
+cd ../agent-kit && AGENT_KIT_MASTER_KEY=$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=') BFF_API_TOKEN=dev-token LLM_API_KEY=<你的 Ark Key> LLM_MODEL=<你的模型名> node examples/browser-extension-bff/dist/server.js
+```
+
+完整的环境变量清单与协议说明见 [agent-kit 的 BFF README](../agent-kit/examples/browser-extension-bff/README.md)。
+
+## 权限说明
+
+- `debugger`：页面写操作经 `chrome.debugger` + CDP 下发真实输入事件。
+  DOM 合成事件的 `isTrusted` 为 `false`，无法触发目标站点依赖的真实焦点与 user activation。
+  **代价**：任务运行时标签页顶部会出现「正在被调试」提示条。手动关闭它、或为该标签页
+  打开开发者工具，都会中止当前任务 —— 这是浏览器的固有行为，无法消除。
+- `webNavigation`：枚举 frame 以做跨 frame 聚合定位，避免退化为只读主 frame。
 
 ## 验证记录
 
 - `pnpm run typecheck` ✅
+- `pnpm test` ✅
 - `pnpm run build` ✅
 
 ## 说明与后续
 
-- 当前默认选择器是通用兜底值，建议在真实 BOSS 页面根据 DOM 微调。
-- API Key 当前存储在 `localStorage`，请在可信环境使用；后续可迁移到更安全的存储方案。
+- 当前默认选择器是通用兜底值，建议在真实 BOSS 页面根据 DOM 微调。用户配置的选择器
+  优先级高于内置兜底，无需改代码即可修正。
+- 各验证维度的超时上限当前是保守估计值，需在真实页面实测后收敛
+  （见 `openspec/changes/cdp-real-interaction-agent-kit/poc-notes.md`）。

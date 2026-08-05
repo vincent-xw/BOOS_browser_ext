@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, reactive, watch } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
 import { DEFAULT_SETTINGS, type AppSettings } from '../types/settings';
+import { checkBffConnectivity } from '../agent/agentClient';
 
 const props = defineProps<{
   modelValue: boolean;
@@ -15,6 +16,9 @@ const emit = defineEmits<{
 
 const form = reactive<AppSettings>(JSON.parse(JSON.stringify(DEFAULT_SETTINGS)) as AppSettings);
 
+const checkingConnectivity = ref(false);
+const connectivityResult = ref<{ ok: boolean; message: string } | null>(null);
+
 watch(
   () => props.settings,
   (value) => {
@@ -28,6 +32,21 @@ const panelVisible = computed({
   get: () => props.modelValue,
   set: (value: boolean) => emit('update:modelValue', value),
 });
+
+/** 连通性检查。区分「地址不可达」与「凭据无效」，两者的处置完全不同。 */
+async function handleCheckConnectivity() {
+  checkingConnectivity.value = true;
+  connectivityResult.value = null;
+  try {
+    const result = await checkBffConnectivity({
+      baseUrl: form.advanced.bffBaseUrl,
+      apiToken: form.advanced.bffApiToken,
+    });
+    connectivityResult.value = { ok: result.ok, message: result.message };
+  } finally {
+    checkingConnectivity.value = false;
+  }
+}
 
 function onSave() {
   emit('save', JSON.parse(JSON.stringify(form)) as AppSettings);
@@ -80,33 +99,39 @@ function onSave() {
         <template #header>
           <div class="settings-header">
             <el-text tag="b">高级设置</el-text>
-            <el-tag type="warning" effect="plain">模型 API 配置</el-tag>
+            <el-tag type="warning" effect="plain">BFF 接入配置</el-tag>
           </div>
         </template>
 
         <el-form label-position="top">
-          <el-form-item label="LLM API Endpoint">
-            <el-input
-              v-model="form.advanced.llmApiEndpoint"
-              placeholder="例如：https://api.openai.com/v1/chat/completions"
-            />
+          <el-alert type="info" :closable="false" show-icon style="margin-bottom: 12px">
+            模型 Endpoint、模型名与 API Key 由 BFF 持有，扩展不再保存这些配置。
+            下面的接入 token 不是 LLM API Key。
+          </el-alert>
+          <el-form-item label="BFF 地址">
+            <el-input v-model="form.advanced.bffBaseUrl" placeholder="例如：http://localhost:8787" />
           </el-form-item>
-          <el-form-item label="LLM API Key">
+          <el-form-item label="BFF 接入 token">
             <el-input
-              v-model="form.advanced.llmApiKey"
+              v-model="form.advanced.bffApiToken"
               type="password"
               show-password
-              placeholder="输入你的 API Key"
+              placeholder="与 BFF 的 BFF_API_TOKEN 一致"
             />
           </el-form-item>
-          <el-form-item label="模型名称">
-            <el-input v-model="form.advanced.llmModel" placeholder="例如：gpt-4o-mini" />
+          <el-form-item label="连通性检查">
+            <div class="connectivity-row">
+              <el-button :loading="checkingConnectivity" @click="handleCheckConnectivity">检查 BFF 连通性</el-button>
+              <el-tag v-if="connectivityResult" :type="connectivityResult.ok ? 'success' : 'danger'" effect="plain">
+                {{ connectivityResult.message }}
+              </el-tag>
+            </div>
           </el-form-item>
-          <el-form-item label="LLM 请求超时（毫秒）">
+          <el-form-item label="BFF 请求超时（毫秒）">
             <el-input-number
-              v-model="form.advanced.llmRequestTimeoutMs"
+              v-model="form.advanced.bffRequestTimeoutMs"
               :min="5000"
-              :max="120000"
+              :max="300000"
               :step="1000"
               controls-position="right"
             />
@@ -145,7 +170,7 @@ function onSave() {
         type="warning"
         :closable="false"
         show-icon
-        title="提示：当前 API Key 保存于 localStorage，请仅在可信环境中使用。"
+        title="提示：任务运行期间目标标签页顶部会出现「正在被调试」提示条。手动关闭它会中止当前任务。"
       />
 
       <el-button type="primary" :loading="saving" @click="onSave">保存设置</el-button>
@@ -159,5 +184,12 @@ function onSave() {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.connectivity-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 </style>

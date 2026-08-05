@@ -28,6 +28,7 @@ const {
   isRefreshingCandidateOverview,
   candidateResults,
   singleProcessingKeys,
+  favoriteActionsEnabled,
   overallMessage,
   overallMessageType,
   providerLabel,
@@ -37,6 +38,7 @@ const {
   checkDomainMatch,
   refreshCandidateOverview,
   handleRunWorkflow,
+  stopWorkflow,
   processSingleCandidate,
   handleExport,
 } = usePageIoController();
@@ -320,6 +322,10 @@ onBeforeUnmount(() => {
               开始自动处理
             </el-button>
 
+            <el-button v-if="runState === 'running'" type="danger" plain @click="stopWorkflow">
+              停止
+            </el-button>
+
             <el-button
               plain
               :icon="RefreshRight"
@@ -329,7 +335,19 @@ onBeforeUnmount(() => {
             >
               刷新页面数据
             </el-button>
+
+            <el-checkbox v-model="favoriteActionsEnabled" :disabled="isBusy">
+              执行真实收藏动作
+            </el-checkbox>
           </el-space>
+
+          <el-alert
+            type="info"
+            :closable="false"
+            show-icon
+            title="页面操作使用真实输入事件"
+            description="任务运行时目标标签页顶部会出现「正在被调试」提示条，这是浏览器的固有行为。手动关闭该提示条、或为该标签页打开开发者工具，都会中止当前任务。"
+          />
 
           <el-alert
             v-if="settingsWarnings.length"

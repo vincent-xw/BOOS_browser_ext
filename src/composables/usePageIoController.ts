@@ -1,5 +1,6 @@
 import { computed, ref } from 'vue';
 import { chromeMcpService } from '../services/chromeMcpService';
+import { cdpActionService } from '../services/cdpActionService';
 import {
   buildCandidateKey,
   getResultsByKeys,
@@ -20,6 +21,7 @@ import type {
   WorkflowProgress,
 } from '../types/page-io';
 import type { AppSettings } from '../types/settings';
+import { MessageType } from '../types/messages';
 
 function createInitialProgress(): WorkflowProgress {
   return {
@@ -160,6 +162,13 @@ export function usePageIoController() {
   const lastCandidateSnapshot = ref<CandidateSummary[] | null>(null);
   const candidateResults = ref<Map<string, CandidateDbResult>>(new Map());
   const singleProcessingKeys = ref<Set<string>>(new Set());
+  /**
+   * 是否执行真实收藏动作。
+   * 关掉它就只做评估、不改页面 —— 调选择器或校准 prompt 时用得上，
+   * 免得一边试一边在真实账号上留下收藏记录。
+   */
+  const favoriteActionsEnabled = ref(true);
+  const debugSessionActive = ref(false);
 
   const isBusy = computed(() => runState.value === 'running');
   const overallState = computed<OperationState>(() => runState.value);
@@ -182,6 +191,8 @@ export function usePageIoController() {
         return 'Chrome MCP';
       case 'tabs-scripting-fallback':
         return '标签页脚本回退';
+      case 'cdp-debugger':
+        return 'CDP 真实事件';
       default:
         return '能力不可用';
     }
@@ -243,6 +254,22 @@ export function usePageIoController() {
     const loaded = settingsService.load();
     settings.value = loaded.normalized;
     settingsWarnings.value = loaded.issues;
+  }
+
+  /**
+   * 监听调试会话断连。
+   * 断连时任务必须显式置失败并给出可读原因——静默卡住是最糟的失败方式，
+   * 用户会以为还在跑，而实际上后续所有写操作都会失败。
+   */
+  if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {
+    chrome.runtime.onMessage.addListener((message: { type?: string; message?: string }) => {
+      if (message?.type !== MessageType.CdpSessionState || !message.message) return;
+      // 会话已在 SW 侧断开，本地标记同步清掉，避免 finally 里再去 detach 一个不存在的会话。
+      debugSessionActive.value = false;
+      if (runState.value !== 'running') return;
+      runState.value = 'failed';
+      runError.value = { code: 'NO_DEBUG_SESSION', message: message.message };
+    });
   }
 
   function saveSettings(next: AppSettings): { ok: boolean; issues: string[] } {
@@ -397,16 +424,28 @@ export function usePageIoController() {
       return;
     }
 
-    if (!settings.value.advanced.llmApiEndpoint || !settings.value.advanced.llmApiKey) {
+    if (!settings.value.advanced.bffBaseUrl || !settings.value.advanced.bffApiToken) {
       runState.value = 'failed';
       runError.value = {
         code: 'CONFIG_MISSING',
-        message: '请先在高级设置中配置大模型 API Endpoint 与 API Key。',
+        message: '请先在高级设置中配置 BFF 地址与接入 token。模型凭据由 BFF 持有，扩展不再保存。',
       };
       return;
     }
 
     const selectors = createSelectors(settings.value);
+
+    // 需要执行真实收藏动作时先建立调试会话，整个任务期间复用同一连接。
+    if (favoriteActionsEnabled.value) {
+      const attached = await cdpActionService.attach();
+      if (!attached.ok) {
+        runState.value = 'failed';
+        runError.value = attached.error ?? { code: 'NO_DEBUG_SESSION', message: '无法建立调试连接。' };
+        return;
+      }
+      debugSessionActive.value = true;
+    }
+
     const listResult = await chromeMcpService.readCandidateList(selectors);
     provider.value = listResult.provider;
     mode.value = listResult.mode;
@@ -469,20 +508,33 @@ export function usePageIoController() {
             continue;
           }
 
-          appendRecord({
-            candidate,
-            status: decision.shouldFavorite ? 'favorited' : 'skipped',
-            reason: decision.reason,
-          });
+          // 模型判定值得跟进时执行真实收藏动作。
+          // 该链路此前因合成事件不可靠而被停用，现在经 CDP 下发真实点击并逐项验证。
+          let actionStatus: WorkflowProgress['records'][number]['status'] = decision.shouldFavorite
+            ? 'favorited'
+            : 'skipped';
+          let reason = decision.reason;
+
+          if (decision.shouldFavorite && favoriteActionsEnabled.value) {
+            progress.value.currentCandidateName = candidate.name;
+            const favorited = await cdpActionService.favoriteCandidate();
+            if (!favorited.ok) {
+              actionStatus = 'failed';
+              reason = `${decision.reason}（收藏动作失败：${favorited.error?.message ?? '未知原因'}）`;
+            }
+          }
+
+          appendRecord({ candidate, status: actionStatus, reason });
 
           const dbRecord: CandidateDbResult = {
             key: buildCandidateKey(candidate.name, candidate.previewText),
             name: candidate.name,
             previewText: candidate.previewText,
             shouldFavorite: decision.shouldFavorite,
-            reason: decision.reason,
+            reason,
             processedAt: new Date().toISOString(),
-            model: settings.value.advanced.llmModel,
+            // 扩展不再持有模型名（凭据与模型配置都在 BFF），只记录来源。
+            model: 'bff',
           };
           dbRecordsToSave.push(dbRecord);
           candidateResults.value.set(dbRecord.key, dbRecord);
@@ -509,6 +561,9 @@ export function usePageIoController() {
       };
       progress.value.currentCandidateName = '';
       return;
+    } finally {
+      // 任务无论正常结束还是抛异常都要释放调试会话，否则调试横幅会一直挂在页面上。
+      await releaseDebugSession();
     }
 
     progress.value.currentCandidateName = '';
@@ -518,6 +573,23 @@ export function usePageIoController() {
         code: 'EXECUTION_FAILED',
         message: '流程已完成，但存在失败候选人，请查看处理记录。',
       };
+    }
+  }
+
+  /** 释放调试会话。幂等，可在任意退出路径上调用。 */
+  async function releaseDebugSession(): Promise<void> {
+    if (!debugSessionActive.value) return;
+    debugSessionActive.value = false;
+    await cdpActionService.detach();
+  }
+
+  /** 用户主动停止：中止任务并释放调试连接。 */
+  async function stopWorkflow(): Promise<void> {
+    await releaseDebugSession();
+    if (runState.value === 'running') {
+      runState.value = 'failed';
+      runError.value = { code: 'EXECUTION_FAILED', message: '任务已被手动停止。' };
+      progress.value.currentCandidateName = '';
     }
   }
 
@@ -551,7 +623,7 @@ export function usePageIoController() {
         shouldFavorite: decision?.shouldFavorite ?? false,
         reason: decision?.reason ?? 'LLM 未返回结果。',
         processedAt: new Date().toISOString(),
-        model: settings.value.advanced.llmModel,
+        model: 'bff',
       };
 
       await saveResults([dbRecord]);
@@ -584,6 +656,8 @@ export function usePageIoController() {
     isRefreshingCandidateOverview,
     candidateResults,
     singleProcessingKeys,
+    favoriteActionsEnabled,
+    debugSessionActive,
     overallState,
     overallMessage,
     overallMessageType,
@@ -595,6 +669,7 @@ export function usePageIoController() {
     checkDomainMatch,
     refreshCandidateOverview,
     handleRunWorkflow,
+    stopWorkflow,
     processSingleCandidate,
     handleExport,
   };
