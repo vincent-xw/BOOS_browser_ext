@@ -89,11 +89,12 @@ cd ../agent-kit && pnpm install && cp examples/browser-extension-bff/.env.exampl
 填好 `.env`（需要 `AGENT_KIT_MASTER_KEY`、`BFF_API_TOKEN`、`LLM_API_KEY`、`LLM_MODEL`）后启动：
 
 ```bash
-cd ../agent-kit && set -a && source examples/browser-extension-bff/.env && set +a && pnpm --filter browser-extension-bff dev
+cd ../agent-kit && pnpm dev:bff
 ```
 
-`dev` 带热重载（改 prompt 或工具定义后自动重编重启），`start` 是一次性启动。两者都会
-自动先编译依赖的 workspace 包。默认监听 `http://localhost:8787`。
+`.env` 由 Node 原生 `--env-file` 加载，无需手动 source。`dev:bff` 带热重载（改 prompt 或
+工具定义后自动重编重启），`start:bff` 是一次性启动。两者都会自动先编译依赖的 workspace 包。
+默认监听 `http://localhost:8787`。
 
 完整的环境变量清单与协议说明见 [agent-kit 的 BFF README](../agent-kit/examples/browser-extension-bff/README.md)。
 
