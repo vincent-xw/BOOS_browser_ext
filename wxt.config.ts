@@ -2,6 +2,8 @@ import { defineConfig } from 'wxt';
 
 export default defineConfig({
   modules: ['@wxt-dev/module-vue'],
+  // 默认产物目录是 .output，隐藏目录在 Finder 里默认看不见、不便于手动加载扩展。
+  outDir: 'output',
   webExt: {
     // 仅启动开发监听，不自动拉起新的浏览器窗口。
     // 这样可以在你当前已打开的 Chrome 窗口中手动加载开发版扩展。
