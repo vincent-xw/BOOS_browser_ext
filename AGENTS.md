@@ -9,7 +9,7 @@
 ```bash
 pnpm install          # 安装依赖
 pnpm run dev          # 启动开发模式（WXT）
-pnpm run build        # 构建 Chrome MV3 产物 → .output/chrome-mv3/
+pnpm run build        # 构建 Chrome MV3 产物 → output/chrome-mv3/
 pnpm run typecheck    # TypeScript 类型检查（vue-tsc）
 pnpm test             # 单元测试（vitest）
 pnpm run zip          # 打包扩展产物
