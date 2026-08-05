@@ -2,7 +2,7 @@ import { defineContentScript } from 'wxt/utils/define-content-script';
 
 import { MessageType } from '../src/types/messages';
 import type { ExtensionRequest, MessageResponse } from '../src/types/messages';
-import { captureBaseline, locateElement, readPageSnapshot, verify } from '../src/services/domLocator';
+import { captureBaseline, clearRefRegistry, locateElement, readPageSnapshot, resolveRef, snapshotInteractive, verify } from '../src/services/domLocator';
 
 /**
  * content script：只读。
@@ -17,6 +17,11 @@ export default defineContentScript({
   main() {
     // 变更前基线由 locate/verify 之间共享：domChanged 维度需要「之前是什么」才能判定变化。
     let baseline: Record<string, string> = {};
+
+    // SPA 导航后清空 ref 注册表：旧 ref 不该命中新页面的元素。
+    // popstate 覆盖前进/后退，pushState 由 SPA 路由触发。
+    window.addEventListener('popstate', clearRefRegistry);
+    window.addEventListener('pagehide', clearRefRegistry);
 
     chrome.runtime.onMessage.addListener((message: ExtensionRequest, _sender, sendResponse) => {
       const respond = (response: MessageResponse) => sendResponse(response);
@@ -38,6 +43,14 @@ export default defineContentScript({
 
         case MessageType.ContentReadPage:
           respond({ ok: true, data: readPageSnapshot(message.includeCandidateList ?? false) });
+          return false;
+
+        case MessageType.ContentSnapshot:
+          respond({ ok: true, data: snapshotInteractive() });
+          return false;
+
+        case MessageType.ContentResolveRef:
+          respond({ ok: true, data: resolveRef(message.ref) });
           return false;
 
         case MessageType.ContentVerify:

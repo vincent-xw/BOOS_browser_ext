@@ -33,6 +33,9 @@ export const MessageType = {
   ContentLocate: 'BOOS_CONTENT_LOCATE',
   ContentVerify: 'BOOS_CONTENT_VERIFY',
   ContentReadPage: 'BOOS_CONTENT_READ_PAGE',
+  /** 可交互元素快照与 ref 解析：自由指令的定位主路径。 */
+  ContentSnapshot: 'BOOS_CONTENT_SNAPSHOT',
+  ContentResolveRef: 'BOOS_CONTENT_RESOLVE_REF',
 } as const;
 
 export type MessageTypeValue = (typeof MessageType)[keyof typeof MessageType];
@@ -58,7 +61,9 @@ export type ExtensionRequest =
   | { type: typeof MessageType.ContentPing; tabId: number }
   | { type: typeof MessageType.ContentLocate; tabId: number; locator: ElementLocator }
   | { type: typeof MessageType.ContentVerify; tabId: number; request: VerifyRequest }
-  | { type: typeof MessageType.ContentReadPage; tabId: number; includeCandidateList?: boolean };
+  | { type: typeof MessageType.ContentReadPage; tabId: number; includeCandidateList?: boolean }
+  | { type: typeof MessageType.ContentSnapshot; tabId: number }
+  | { type: typeof MessageType.ContentResolveRef; tabId: number; ref: number };
 
 /** 统一响应信封。失败一律带 code 与可读 message，不抛裸异常给调用方。 */
 export type MessageResponse<T = unknown> =

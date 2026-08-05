@@ -1,4 +1,13 @@
-import type { ElementRole, LocateResult, ObservedRequest, PageSnapshot, VerifyRequest, VerifyResult } from '../types/cdp';
+import type {
+  ElementRole,
+  LocateResult,
+  ObservedRequest,
+  PageSnapshot,
+  PageSnapshotResult,
+  RefResolution,
+  VerifyRequest,
+  VerifyResult,
+} from '../types/cdp';
 import { evaluateNetworkDimension } from '../services/networkVerifier';
 import { MessageType } from '../types/messages';
 import type { ExtensionRequest, KeyModifier, MessageResponse, PressableKey } from '../types/messages';
@@ -12,6 +21,7 @@ import type { ExtensionRequest, KeyModifier, MessageResponse, PressableKey } fro
 
 /** 白名单。BFF 下发的工具名必须在这里，否则拒绝执行任何页面动作。 */
 export const TOOL_ALLOWLIST = [
+  'browser.snapshot',
   'browser.read_page',
   'browser.locate_element',
   'browser.click',
@@ -22,13 +32,28 @@ export const TOOL_ALLOWLIST = [
   'browser.screenshot',
 ] as const;
 
+/** 只读工具：不改变页面状态，审批时可自动放行。 */
+export const READ_ONLY_TOOLS: readonly ToolName[] = [
+  'browser.snapshot',
+  'browser.read_page',
+  'browser.locate_element',
+  'browser.verify',
+  'browser.screenshot',
+];
+
 export type ToolName = (typeof TOOL_ALLOWLIST)[number];
 
 const allowSet = new Set<string>(TOOL_ALLOWLIST);
+const readOnlySet = new Set<string>(READ_ONLY_TOOLS);
 
 /** 工具名是否在白名单内。 */
 export function isAllowedTool(name: string): name is ToolName {
   return allowSet.has(name);
+}
+
+/** 该工具是否只读。只读工具不改变页面状态，审批可自动放行。 */
+export function isReadOnlyTool(name: string): boolean {
+  return readOnlySet.has(name);
 }
 
 /** 工具执行失败的结构化结果。会被回填给 BFF，让模型知道发生了什么。 */
@@ -49,9 +74,47 @@ function invalid(message: string): ToolFailure {
 function requirePoint(input: Record<string, unknown>): Validated<{ x: number; y: number }> {
   const { x, y } = input;
   if (typeof x !== 'number' || !Number.isFinite(x) || typeof y !== 'number' || !Number.isFinite(y)) {
-    return invalid('缺少有效的 x / y 坐标（必须是有限数值，单位为 CSS 像素）。');
+    return invalid('缺少有效的定位信息：请给出 ref（推荐，来自 browser.snapshot），或有限数值的 x / y 坐标。');
   }
   return { ok: true, value: { x, y } };
+}
+
+/**
+ * 解析动作目标的坐标。
+ *
+ * 传了 ref 就按 ref 取**当前**坐标 —— 这是「每步重新算坐标」纪律的实现点：
+ * 模型可以放心引用几轮之前快照里的 ref，坐标由这里保证新鲜。
+ * 只传 x/y 时按原样使用（预设流程走这条）。
+ */
+async function resolveTargetPoint(
+  input: Record<string, unknown>,
+  options: ToolExecutorOptions,
+): Promise<Validated<{ x: number; y: number; label?: string }>> {
+  if (typeof input.ref === 'number') {
+    const resolution = await options.send<RefResolution>({
+      type: MessageType.ContentResolveRef,
+      tabId: options.tabId,
+      ref: input.ref,
+    });
+    if (!resolution.found || typeof resolution.x !== 'number' || typeof resolution.y !== 'number') {
+      return {
+        ok: false,
+        code: 'TOOL_INPUT_INVALID',
+        message: resolution.message ?? `ref ${input.ref} 无法解析为坐标，请重新调用 browser.snapshot。`,
+      };
+    }
+    if (resolution.occluded) {
+      return {
+        ok: false,
+        code: 'TOOL_EXECUTION_FAILED',
+        message: `目标被 ${resolution.occludedBy ?? '其他元素'} 遮挡，未执行动作。请先处理遮挡。`,
+      };
+    }
+    return { ok: true, value: { x: resolution.x, y: resolution.y, ...(resolution.label ? { label: resolution.label } : {}) } };
+  }
+  const point = requirePoint(input);
+  if (!point.ok) return point;
+  return { ok: true, value: point.value };
 }
 
 function requireString(input: Record<string, unknown>, key: string): Validated<string> {
@@ -98,6 +161,9 @@ export async function executeTool(
 
   try {
     switch (name) {
+      case 'browser.snapshot':
+        return await send<PageSnapshotResult>({ type: MessageType.ContentSnapshot, tabId });
+
       case 'browser.read_page':
         return await send<PageSnapshot>({
           type: MessageType.ContentReadPage,
@@ -106,37 +172,49 @@ export async function executeTool(
         });
 
       case 'browser.locate_element': {
-        const role = input.role;
-        if (!isElementRole(role)) return invalid(`role 不是受支持的元素角色：${String(role)}`);
+        // ref / selector / role 三者至少给一个；role 已非必填。
+        if (input.role !== undefined && !isElementRole(input.role)) {
+          return invalid(`role 不是受支持的元素角色：${String(input.role)}`);
+        }
+        if (input.ref === undefined && input.selector === undefined && input.role === undefined) {
+          return invalid('定位需要 ref、selector 或 role 之一。建议先调用 browser.snapshot 取 ref。');
+        }
         return await send<LocateResult>({
           type: MessageType.ContentLocate,
           tabId,
           locator: {
-            role,
+            ...(isElementRole(input.role) ? { role: input.role } : {}),
             ...(typeof input.selector === 'string' ? { selector: input.selector } : {}),
+            ...(typeof input.ref === 'number' ? { ref: input.ref } : {}),
             ...(typeof input.index === 'number' ? { index: input.index } : {}),
           },
         });
       }
 
       case 'browser.click': {
-        const point = requirePoint(input);
-        if (!point.ok) return point;
+        const target = await resolveTargetPoint(input, options);
+        if (!target.ok) return target;
+        const label = typeof input.label === 'string' ? input.label : target.value.label;
         return await send({
           type: MessageType.CdpClick,
           tabId,
-          x: point.value.x,
-          y: point.value.y,
-          ...(typeof input.label === 'string' ? { label: input.label } : {}),
+          x: target.value.x,
+          y: target.value.y,
+          ...(label ? { label } : {}),
         });
       }
 
       case 'browser.input_text': {
-        const point = requirePoint(input);
-        if (!point.ok) return point;
+        const target = await resolveTargetPoint(input, options);
+        if (!target.ok) return target;
         const text = requireString(input, 'text');
         if (!text.ok) return text;
-        return await send({ type: MessageType.CdpInputText, tabId, x: point.value.x, y: point.value.y, text: text.value });
+        // clearFirst：先全选再让 insertText 覆盖。不这样做会追加到已有内容后面。
+        if (input.clearFirst === true) {
+          await send({ type: MessageType.CdpClick, tabId, x: target.value.x, y: target.value.y });
+          await send({ type: MessageType.CdpPressKey, tabId, key: 'Backspace', modifiers: ['Meta'] });
+        }
+        return await send({ type: MessageType.CdpInputText, tabId, x: target.value.x, y: target.value.y, text: text.value });
       }
 
       case 'browser.press_key': {

@@ -7,7 +7,10 @@
  * 因为往往仍落在页面某个元素上，症状是「点了但点错」而非报错，比崩溃更难查。
  */
 
-/** 元素的语义角色。扩展据此选择对应的选择器列表。 */
+/**
+ * 元素的语义角色。仅用于预设流程（收藏/打招呼等）的选择器兜底。
+ * 自由指令场景不使用它 —— 那里走 browser.snapshot 返回的 ref。
+ */
 export type ElementRole =
   | 'candidateListItem'
   | 'candidateName'
@@ -18,11 +21,65 @@ export type ElementRole =
   | 'sendButton'
   | 'dialog';
 
-/** 定位意图。selector 显式给出时优先于 role 对应的配置。 */
+/**
+ * 定位意图。三种方式，优先级从高到低：
+ * 1. ref —— 来自 browser.snapshot 的元素引用，自由指令的主路径
+ * 2. selector —— 显式 CSS 选择器
+ * 3. role —— 预设角色，走用户配置 + 站点兜底选择器
+ */
 export interface ElementLocator {
-  role: ElementRole;
+  role?: ElementRole;
   selector?: string;
+  ref?: number;
   index?: number;
+}
+
+/**
+ * 快照条目：一个可交互元素。
+ *
+ * ref 是稳定标识，坐标不是 —— 模型按 ref 指定目标，执行前再按 ref 取当前坐标。
+ * 这样既保住「每步重新算坐标」的纪律，又不必让模型猜选择器。
+ */
+export interface SnapshotEntry {
+  ref: number;
+  tag: string;
+  /** 可读标签：优先 aria-label / 文本 / placeholder / title / name。 */
+  label: string;
+  /** 元素类型提示，例如 button / link / textbox / checkbox。 */
+  kind: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** 是否被遮挡。被遮挡的元素不应直接点击。 */
+  occluded?: boolean;
+  disabled?: boolean;
+  /** 输入类元素的当前值，便于模型判断是否需要先清空。 */
+  value?: string;
+}
+
+/** 页面快照。 */
+export interface PageSnapshotResult {
+  url: string;
+  title: string;
+  entries: SnapshotEntry[];
+  /** 超出上限被省略的元素数量。必须告知模型，否则它会以为看到了全部。 */
+  truncated?: number;
+  frameId?: string;
+}
+
+/** 按 ref 取当前坐标的结果。 */
+export interface RefResolution {
+  found: boolean;
+  /** 元素已从 DOM 卸载。模型应重新快照而不是重试。 */
+  stale?: boolean;
+  x?: number;
+  y?: number;
+  rect?: ElementRect;
+  occluded?: boolean;
+  occludedBy?: string;
+  label?: string;
+  message?: string;
 }
 
 /** 元素矩形，CSS 像素。 */

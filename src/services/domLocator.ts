@@ -14,7 +14,10 @@ import type {
   ElementRole,
   LocateResult,
   PageSnapshot,
+  PageSnapshotResult,
+  RefResolution,
   SelectorSource,
+  SnapshotEntry,
   VerifyDimension,
   VerifyRequest,
   VerifyResult,
@@ -103,17 +106,43 @@ export interface LocatorSelectorConfig {
 
 /**
  * 定位元素并返回坐标与可点击性判定。
- * 顺序固定：用户配置优先、站点 fallback 兜底 —— 两者都不得省略。
+ *
+ * 三条路径：ref（自由指令主路径）> selector（显式）> role（预设兜底）。
+ * role 路径固定「用户配置优先、站点 fallback 兜底」，两者都不得省略。
  */
 export function locateElement(locator: ElementLocator, config: LocatorSelectorConfig = {}): LocateResult {
+  // ref 路径：元素引用已在快照时登记，直接取当前坐标。
+  if (typeof locator.ref === 'number') {
+    const resolved = resolveRef(locator.ref);
+    if (!resolved.found) {
+      return { found: false, message: resolved.message ?? `ref ${locator.ref} 已失效，请重新快照。` };
+    }
+    return {
+      found: true,
+      ...(resolved.x === undefined ? {} : { x: resolved.x }),
+      ...(resolved.y === undefined ? {} : { y: resolved.y }),
+      ...(resolved.rect ? { rect: resolved.rect } : {}),
+      visible: true,
+      inViewport: true,
+      ...(resolved.occluded === undefined ? {} : { occluded: resolved.occluded }),
+      ...(resolved.occludedBy ? { occludedBy: resolved.occludedBy } : {}),
+      matchedSelector: `ref:${locator.ref}`,
+      message: resolved.message ?? '按 ref 定位成功。',
+    };
+  }
+
   const explicit = locator.selector ? [locator.selector] : [];
-  const userList = parseSelectorList(config.userSelectors?.[locator.role]);
-  const fallbackList = parseSelectorList(ROLE_FALLBACK_SELECTORS[locator.role]);
+  const userList = locator.role ? parseSelectorList(config.userSelectors?.[locator.role]) : [];
+  const fallbackList = locator.role ? parseSelectorList(ROLE_FALLBACK_SELECTORS[locator.role]) : [];
   const attempts: Array<{ selector: string; source: SelectorSource }> = [
     ...explicit.map((selector) => ({ selector, source: 'user-config' as const })),
     ...userList.map((selector) => ({ selector, source: 'user-config' as const })),
     ...fallbackList.map((selector) => ({ selector, source: 'site-fallback' as const })),
   ];
+
+  if (attempts.length === 0) {
+    return { found: false, message: '定位请求既未给出 ref、也未给出 selector 或 role。' };
+  }
 
   const tried: string[] = [];
   for (const attempt of attempts) {
@@ -134,7 +163,7 @@ export function locateElement(locator: ElementLocator, config: LocatorSelectorCo
   return {
     found: false,
     triedSelectors: tried,
-    message: `未定位到 ${locator.role}，已尝试 ${tried.length} 个选择器。请检查选择器配置。`,
+    message: `未定位到 ${locator.role ?? locator.selector}，已尝试 ${tried.length} 个选择器。请检查选择器配置。`,
   };
 }
 
@@ -325,6 +354,190 @@ export function captureBaseline(selectors: string[]): Record<string, string> {
   const baseline: Record<string, string> = {};
   for (const selector of selectors) baseline[selector] = stateOf(selector);
   return baseline;
+}
+
+// ── 快照与 ref 引用 ────────────────────────────────────────────────
+
+/**
+ * ref → 元素 的注册表。
+ *
+ * 自由指令下模型无从猜测选择器，所以改为：快照给每个可交互元素分配一个 ref，
+ * 模型按 ref 指定目标，执行动作前再按 ref 取**当前**坐标。
+ * 坐标会因弹窗/滚动/重渲染失效，元素引用不会 —— 这样既保住了「每步重算坐标」，
+ * 又不需要模型碰选择器。
+ */
+const refRegistry = new Map<number, WeakRef<Element>>();
+let nextRef = 1;
+
+/** 可交互元素的选择器。覆盖原生控件与常见的 ARIA / 可点击容器。 */
+const INTERACTIVE_SELECTOR = [
+  'a[href]',
+  'button',
+  'input:not([type=hidden])',
+  'select',
+  'textarea',
+  '[contenteditable=true]',
+  '[role=button]',
+  '[role=link]',
+  '[role=checkbox]',
+  '[role=radio]',
+  '[role=tab]',
+  '[role=menuitem]',
+  '[role=combobox]',
+  '[role=searchbox]',
+  '[onclick]',
+  '[tabindex]:not([tabindex="-1"])',
+].join(',');
+
+/** 快照单页最多返回的元素数。超出会截断并告知模型。 */
+const SNAPSHOT_LIMIT = 150;
+
+/** 推断元素类型，供模型判断该用什么动作。 */
+function inferKind(element: Element): string {
+  const tag = element.tagName.toLowerCase();
+  const role = element.getAttribute('role');
+  if (role) return role;
+  if (tag === 'a') return 'link';
+  if (tag === 'button') return 'button';
+  if (tag === 'select') return 'select';
+  if (tag === 'textarea') return 'textbox';
+  if (tag === 'input') {
+    const type = (element as HTMLInputElement).type;
+    if (type === 'checkbox' || type === 'radio' || type === 'submit' || type === 'button') return type;
+    return 'textbox';
+  }
+  if (element instanceof HTMLElement && element.isContentEditable) return 'textbox';
+  return 'clickable';
+}
+
+/**
+ * 元素的可读标签。
+ * 按可靠性排序取第一个非空值；文本兜底时压缩空白并截断，避免整段正文进快照。
+ */
+function inferLabel(element: Element): string {
+  const candidates = [
+    element.getAttribute('aria-label'),
+    element.getAttribute('placeholder'),
+    element.getAttribute('title'),
+    element.getAttribute('alt'),
+    element.getAttribute('value'),
+    element.getAttribute('name'),
+    (element.textContent ?? '').replace(/\s+/g, ' ').trim(),
+  ];
+  for (const candidate of candidates) {
+    const text = candidate?.trim();
+    if (text) return text.slice(0, 80);
+  }
+  return `(${element.tagName.toLowerCase()})`;
+}
+
+/**
+ * 快照当前页面的可交互元素。
+ *
+ * 只收视口内可见的元素：视口外的元素坐标无意义，且会把快照撑爆。
+ * 模型需要更多内容时可以先 scroll 再重新快照。
+ */
+export function snapshotInteractive(): PageSnapshotResult {
+  const viewport = { width: window.innerWidth, height: window.innerHeight };
+  const offsets = frameOffsets();
+  const entries: SnapshotEntry[] = [];
+  let skipped = 0;
+
+  let elements: Element[];
+  try {
+    elements = [...document.querySelectorAll(INTERACTIVE_SELECTOR)];
+  } catch {
+    elements = [];
+  }
+
+  for (const element of elements) {
+    if (!isVisible(element)) continue;
+    const rect = toRect(element);
+    if (!isRectInViewport(rect, viewport)) continue;
+    if (entries.length >= SNAPSHOT_LIMIT) {
+      skipped += 1;
+      continue;
+    }
+
+    const ref = nextRef;
+    nextRef += 1;
+    refRegistry.set(ref, new WeakRef(element));
+
+    const center = roundPoint(elementCenterInMainFrame(rect, offsets));
+    const localCenter = roundPoint({ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 });
+    const occlusion = detectOcclusion(element, localCenter);
+    const value = element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement ? element.value : undefined;
+
+    entries.push({
+      ref,
+      tag: element.tagName.toLowerCase(),
+      label: inferLabel(element),
+      kind: inferKind(element),
+      x: center.x,
+      y: center.y,
+      width: Math.round(rect.width),
+      height: Math.round(rect.height),
+      ...(occlusion.occluded ? { occluded: true } : {}),
+      ...(isDisabled(element) ? { disabled: true } : {}),
+      ...(value ? { value: value.slice(0, 120) } : {}),
+    });
+  }
+
+  return {
+    url: window.location.href,
+    title: document.title,
+    entries,
+    ...(skipped > 0 ? { truncated: skipped } : {}),
+    frameId: window === window.top ? 'main' : window.location.href,
+  };
+}
+
+/**
+ * 按 ref 取当前坐标。
+ * 元素已从 DOM 卸载时返回 stale，让模型重新快照而不是拿旧坐标重试。
+ */
+export function resolveRef(ref: number): RefResolution {
+  const held = refRegistry.get(ref);
+  const element = held?.deref();
+  if (!element) {
+    refRegistry.delete(ref);
+    return { found: false, stale: true, message: `ref ${ref} 已失效（元素被回收），请重新快照。` };
+  }
+  if (!element.isConnected) {
+    refRegistry.delete(ref);
+    return { found: false, stale: true, message: `ref ${ref} 指向的元素已从页面移除，请重新快照。` };
+  }
+  if (!isVisible(element)) {
+    return { found: false, message: `ref ${ref} 指向的元素当前不可见。` };
+  }
+
+  const viewport = { width: window.innerWidth, height: window.innerHeight };
+  let rect = toRect(element);
+  // 不在视口内先滚入，再重算 —— 滚动会改变坐标。
+  if (!isRectInViewport(rect, viewport)) {
+    element.scrollIntoView({ block: 'center', inline: 'nearest' });
+    rect = toRect(element);
+  }
+
+  const center = roundPoint(elementCenterInMainFrame(rect, frameOffsets()));
+  const localCenter = roundPoint({ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 });
+  const occlusion = detectOcclusion(element, localCenter);
+
+  return {
+    found: true,
+    x: center.x,
+    y: center.y,
+    rect,
+    occluded: occlusion.occluded,
+    ...(occlusion.occludedBy ? { occludedBy: occlusion.occludedBy } : {}),
+    label: inferLabel(element),
+    message: occlusion.occluded ? `元素被 ${occlusion.occludedBy} 遮挡，不应直接点击。` : '按 ref 取坐标成功。',
+  };
+}
+
+/** 清空 ref 注册表。页面导航后调用，避免旧 ref 命中新页面的元素。 */
+export function clearRefRegistry(): void {
+  refRegistry.clear();
 }
 
 function sleep(ms: number): Promise<void> {

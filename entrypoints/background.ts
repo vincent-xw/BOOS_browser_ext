@@ -2,7 +2,7 @@ import { defineBackground } from 'wxt/utils/define-background';
 
 import { MessageType } from '../src/types/messages';
 import type { ExtensionRequest, MessageErrorCode, MessageResponse } from '../src/types/messages';
-import type { LocateResult, PageSnapshot } from '../src/types/cdp';
+import type { LocateResult, PageSnapshot, PageSnapshotResult, RefResolution } from '../src/types/cdp';
 import { CdpError, createCdpSessionManager, describeDetachReason } from '../src/services/cdpSessionManager';
 import { mergeTriedSelectors, pickBestOutcome, scoreLocateResult, scorePageSnapshot } from '../src/services/frameAggregator';
 import type { FrameOutcome } from '../src/services/frameAggregator';
@@ -129,6 +129,37 @@ export default defineBackground(() => {
       const best = pickBestOutcome(outcomes, scorePageSnapshot);
       if (!best) throw new RoutedError('CONTENT_UNAVAILABLE', '没有任何 frame 返回页面内容，请刷新目标页面后重试。');
       return best.result;
+    },
+
+    [MessageType.ContentSnapshot]: async (message) => {
+      // 快照合并所有 frame 的结果而不是取最优：自由指令下模型需要看到整页的可交互元素，
+      // 目标很可能在某个子 frame 里（比如嵌入式搜索框）。
+      const outcomes = await broadcastToFrames<PageSnapshotResult>(message.tabId, message);
+      const collected = outcomes.map((outcome) => outcome.result).filter((result): result is PageSnapshotResult => result !== undefined);
+      if (collected.length === 0) {
+        throw new RoutedError('CONTENT_UNAVAILABLE', '没有任何 frame 返回快照，请刷新目标页面后重试。');
+      }
+      const main = collected.find((result) => result.frameId === 'main') ?? collected[0];
+      const truncated = collected.reduce((sum, result) => sum + (result.truncated ?? 0), 0);
+      return {
+        url: main?.url ?? '',
+        title: main?.title ?? '',
+        entries: collected.flatMap((result) => result.entries),
+        ...(truncated > 0 ? { truncated } : {}),
+      } satisfies PageSnapshotResult;
+    },
+
+    [MessageType.ContentResolveRef]: async (message) => {
+      // ref 只在登记它的那个 frame 里有效，所以广播后取唯一命中的那个。
+      const outcomes = await broadcastToFrames<RefResolution>(message.tabId, message);
+      const results = outcomes.map((outcome) => outcome.result).filter((result): result is RefResolution => result !== undefined);
+      const hit = results.find((result) => result.found);
+      if (hit) return hit;
+      // 没有命中：若有 frame 明确报 stale，透出该原因，让模型知道要重新快照。
+      return (
+        results.find((result) => result.stale) ??
+        results[0] ?? { found: false, stale: true, message: `ref ${message.ref} 未在任何 frame 中找到，请重新快照。` }
+      );
     },
   };
 
