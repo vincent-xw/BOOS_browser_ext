@@ -123,14 +123,14 @@
 
 POC（第 11 组）通过后才可执行本组。本组之后回滚需 revert 提交。
 
-- [ ] 12.1 `clickFavoriteButton`（`chromeMcpService.ts:846-866`）改走 CDP，删除 `pointerdown/mousedown/mouseup/click` 合成序列、`target.click()` 兜底与固定 `setTimeout(1400)`
-- [ ] 12.2 `openCandidateDetail`（`chromeMcpService.ts:597-598`）改走 CDP，删除 `target.click()`
-- [ ] 12.3 `writeWithTabsScripting`（`chromeMcpService.ts:257-280`）改走 CDP，删除 `activeElement.value = text`、`textContent = text` 与补发的 `Event('input')` / `Event('change')`
-- [ ] 12.4 删除 `chromeMcpService.ts:785-873` 的 `window.fetch` 与 `XMLHttpRequest.prototype` monkey-patch 及其 `finally` 恢复逻辑
-- [ ] 12.5 删除 `chromeMcpService.ts:875-891` 基于 `textContent` / `className` diff 与中文正则的结果猜测逻辑
-- [ ] 12.6 全仓库检索确认不存在 `element.click()`、`dispatchEvent(new MouseEvent`、`.value =`、`.textContent =` 形式的页面写路径
-- [ ] 12.7 写操作在目标标签页无可用调试会话时返回失败，提示需先启动任务建立调试连接
-- [ ] 12.8 写操作结果封装中标明使用的是 CDP 通道
+- [x] 12.1 `clickFavoriteButton`（`chromeMcpService.ts:846-866`）改走 CDP，删除 `pointerdown/mousedown/mouseup/click` 合成序列、`target.click()` 兜底与固定 `setTimeout(1400)`
+- [x] 12.2 `openCandidateDetail`（`chromeMcpService.ts:597-598`）改走 CDP，删除 `target.click()`
+- [x] 12.3 `writeWithTabsScripting`（`chromeMcpService.ts:257-280`）改走 CDP，删除 `activeElement.value = text`、`textContent = text` 与补发的 `Event('input')` / `Event('change')`
+- [x] 12.4 删除 `chromeMcpService.ts:785-873` 的 `window.fetch` 与 `XMLHttpRequest.prototype` monkey-patch 及其 `finally` 恢复逻辑
+- [x] 12.5 删除 `chromeMcpService.ts:875-891` 基于 `textContent` / `className` diff 与中文正则的结果猜测逻辑
+- [x] 12.6 全仓库检索确认不存在 `element.click()`、`dispatchEvent(new MouseEvent`、`.value =`、`.textContent =` 形式的页面写路径
+- [x] 12.7 写操作在目标标签页无可用调试会话时返回失败，提示需先启动任务建立调试连接
+- [x] 12.8 写操作结果封装中标明使用的是 CDP 通道
 
 ## 13. 工作流编排改造
 

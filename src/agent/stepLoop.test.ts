@@ -8,7 +8,7 @@ import type { ExtensionRequest } from '../types/messages';
  * 按消息类型返回预设响应的 sender，并记录调用顺序。
  * 顺序是这些测试的核心断言对象：闭环要求「每个写动作前都重新定位」。
  */
-function scriptedSender(overrides: Partial<Record<string, unknown[]>> = {}) {
+function scriptedSender(overrides: Record<string, unknown[]> = {}) {
   const order: string[] = [];
   const queues = new Map<string, unknown[]>(Object.entries(overrides));
   const defaults: Record<string, unknown> = {

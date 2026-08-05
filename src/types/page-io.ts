@@ -1,6 +1,11 @@
 export type OperationState = 'idle' | 'running' | 'succeeded' | 'failed';
 
-export type ProviderKind = 'chrome-mcp' | 'tabs-scripting-fallback' | 'unavailable';
+/**
+ * 执行通道。
+ * cdp-debugger 是页面写操作的唯一通道：经 chrome.debugger 下发真实输入事件。
+ * 其余通道只承担读取。
+ */
+export type ProviderKind = 'chrome-mcp' | 'tabs-scripting-fallback' | 'cdp-debugger' | 'unavailable';
 
 export type ProviderMode = 'live' | 'fallback';
 
@@ -13,7 +18,11 @@ export interface OperationError {
     | 'INVALID_INPUT'
     | 'DOMAIN_MISMATCH'
     | 'CONFIG_MISSING'
-    | 'TIMEOUT';
+    | 'TIMEOUT'
+    /** 目标标签页没有可用的调试会话，写操作无法下发。 */
+    | 'NO_DEBUG_SESSION'
+    /** 动作已下发但验证未通过：命令成功不等于页面产生了变化。 */
+    | 'VERIFICATION_FAILED';
   message: string;
   details?: string;
 }
@@ -24,17 +33,6 @@ export interface PageReadData {
   selectionText: string;
   bodyPreview: string;
   activeElementTag: string | null;
-  timestamp: string;
-}
-
-export interface PageWritePayload {
-  text: string;
-}
-
-export interface PageWriteData {
-  target: 'active-element' | 'hidden-buffer';
-  writtenText: string;
-  message: string;
   timestamp: string;
 }
 
@@ -62,72 +60,6 @@ export interface CandidateProfile {
   resumeText: string;
   sourceUrl: string;
   timestamp: string;
-}
-
-export interface FavoriteActionData {
-  clicked: boolean;
-  message: string;
-  timestamp: string;
-  successSignals?: string[];
-  networkEvents?: Array<{
-    method: string;
-    url: string;
-    status: number;
-  }>;
-  beforeState?: {
-    text: string;
-    className: string;
-  };
-  afterState?: {
-    text: string;
-    className: string;
-  };
-}
-
-export interface FavoriteNetworkEvent {
-  method: string;
-  url: string;
-  status: number;
-  frameUrl: string;
-  isTopFrame?: boolean;
-  timestamp: string;
-  requestBody?: string;
-  requestHeaders?: Record<string, string>;
-  keywordMatched?: boolean;
-}
-
-export interface FavoriteRecordFrameSummary {
-  frameUrl: string;
-  started?: boolean;
-  eventsCaptured: number;
-  note?: string;
-}
-
-export interface FavoriteRecordStartData {
-  started: boolean;
-  message: string;
-  injectedFrameCount: number;
-  startedFrameCount: number;
-  frameSummaries: FavoriteRecordFrameSummary[];
-}
-
-export interface FavoriteNetworkRecording {
-  startedAt: string;
-  stoppedAt: string;
-  endpointKeyword: string;
-  events: FavoriteNetworkEvent[];
-  frameSummaries?: FavoriteRecordFrameSummary[];
-}
-
-export interface FavoriteReplayResult {
-  ok: boolean;
-  message: string;
-  replayedCount: number;
-  responses: Array<{
-    method: string;
-    url: string;
-    status: number;
-  }>;
 }
 
 export interface LlmAssessmentInput {
@@ -172,37 +104,21 @@ export interface ServiceResult<T> {
   error?: OperationError;
 }
 
+/**
+ * window.chromeMcp 桥接：只读能力。
+ *
+ * 写操作不在这里 —— 页面写入全部经 Service Worker 的 chrome.debugger + CDP 下发真实事件。
+ * 桥接运行在页面上下文，它能做到的只有 DOM 合成事件，而那类事件 isTrusted 为 false，
+ * 触发不了真实焦点流转与 user activation。
+ */
 export interface ChromeMcpBridge {
   readPage: () => Promise<ServiceResult<PageReadData> | PageReadData>;
-  writePage: (
-    payload: PageWritePayload,
-  ) => Promise<ServiceResult<PageWriteData> | PageWriteData>;
   readCandidateList?: (
     selectors: CandidateQuerySelectors,
   ) => Promise<ServiceResult<CandidateSummary[]> | CandidateSummary[]>;
-  openCandidateDetail?: (
-    candidate: CandidateSummary,
-    selectors: CandidateQuerySelectors,
-  ) => Promise<ServiceResult<{ opened: boolean; message: string }> | { opened: boolean; message: string }>;
   readCandidateProfile?: (
     selectors: CandidateQuerySelectors,
   ) => Promise<ServiceResult<CandidateProfile> | CandidateProfile>;
-  clickFavoriteButton?: (
-    selectors: CandidateQuerySelectors,
-  ) => Promise<ServiceResult<FavoriteActionData> | FavoriteActionData>;
-  startFavoriteNetworkRecording?: (
-    endpointKeyword: string,
-  ) => Promise<
-    | ServiceResult<FavoriteRecordStartData>
-    | FavoriteRecordStartData
-  >;
-  stopFavoriteNetworkRecording?: (
-    endpointKeyword: string,
-  ) => Promise<ServiceResult<FavoriteNetworkRecording> | FavoriteNetworkRecording>;
-  replayFavoriteNetworkRequests?: (payload: {
-    endpointKeyword: string;
-    mode: 'favorite' | 'unfavorite';
-  }) => Promise<ServiceResult<FavoriteReplayResult> | FavoriteReplayResult>;
 }
 
 declare global {
