@@ -9,7 +9,7 @@
 
 /**
  * 元素的语义角色。仅用于预设流程（收藏/打招呼等）的选择器兜底。
- * 自由指令场景不使用它 —— 那里走 browser.snapshot 返回的 ref。
+ * 自由指令场景不使用它 —— 那里走 browser_snapshot 返回的 ref。
  */
 export type ElementRole =
   | 'candidateListItem'
@@ -23,7 +23,7 @@ export type ElementRole =
 
 /**
  * 定位意图。三种方式，优先级从高到低：
- * 1. ref —— 来自 browser.snapshot 的元素引用，自由指令的主路径
+ * 1. ref —— 来自 browser_snapshot 的元素引用，自由指令的主路径
  * 2. selector —— 显式 CSS 选择器
  * 3. role —— 预设角色，走用户配置 + 站点兜底选择器
  */

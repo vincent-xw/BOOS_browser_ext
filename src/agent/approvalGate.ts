@@ -73,16 +73,16 @@ export function summarizeAction(toolName: string, input: unknown): string {
   const target = typeof record.label === 'string' ? record.label : typeof record.ref === 'number' ? `ref ${record.ref}` : '';
   const at = typeof record.x === 'number' && typeof record.y === 'number' ? `(${record.x}, ${record.y})` : '';
   switch (toolName) {
-    case 'browser.click':
+    case 'browser_click':
       return `点击 ${target || '目标元素'} ${at}`.trim();
-    case 'browser.input_text': {
+    case 'browser_input_text': {
       const text = typeof record.text === 'string' ? record.text : '';
       const preview = text.length > 40 ? `${text.slice(0, 40)}…` : text;
       return `在 ${target || '输入框'} 输入「${preview}」`;
     }
-    case 'browser.press_key':
+    case 'browser_press_key':
       return `按下 ${String(record.key ?? '按键')}${Array.isArray(record.modifiers) && record.modifiers.length ? `（${record.modifiers.join('+')}）` : ''}`;
-    case 'browser.scroll':
+    case 'browser_scroll':
       return `滚动页面 ${String(record.deltaY ?? '')}px`;
     default:
       return `执行 ${toolName}`;

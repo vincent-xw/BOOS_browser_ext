@@ -21,24 +21,24 @@ import type { ExtensionRequest, KeyModifier, MessageResponse, PressableKey } fro
 
 /** 白名单。BFF 下发的工具名必须在这里，否则拒绝执行任何页面动作。 */
 export const TOOL_ALLOWLIST = [
-  'browser.snapshot',
-  'browser.read_page',
-  'browser.locate_element',
-  'browser.click',
-  'browser.input_text',
-  'browser.press_key',
-  'browser.scroll',
-  'browser.verify',
-  'browser.screenshot',
+  'browser_snapshot',
+  'browser_read_page',
+  'browser_locate_element',
+  'browser_click',
+  'browser_input_text',
+  'browser_press_key',
+  'browser_scroll',
+  'browser_verify',
+  'browser_screenshot',
 ] as const;
 
 /** 只读工具：不改变页面状态，审批时可自动放行。 */
 export const READ_ONLY_TOOLS: readonly ToolName[] = [
-  'browser.snapshot',
-  'browser.read_page',
-  'browser.locate_element',
-  'browser.verify',
-  'browser.screenshot',
+  'browser_snapshot',
+  'browser_read_page',
+  'browser_locate_element',
+  'browser_verify',
+  'browser_screenshot',
 ];
 
 export type ToolName = (typeof TOOL_ALLOWLIST)[number];
@@ -74,7 +74,7 @@ function invalid(message: string): ToolFailure {
 function requirePoint(input: Record<string, unknown>): Validated<{ x: number; y: number }> {
   const { x, y } = input;
   if (typeof x !== 'number' || !Number.isFinite(x) || typeof y !== 'number' || !Number.isFinite(y)) {
-    return invalid('缺少有效的定位信息：请给出 ref（推荐，来自 browser.snapshot），或有限数值的 x / y 坐标。');
+    return invalid('缺少有效的定位信息：请给出 ref（推荐，来自 browser_snapshot），或有限数值的 x / y 坐标。');
   }
   return { ok: true, value: { x, y } };
 }
@@ -100,7 +100,7 @@ async function resolveTargetPoint(
       return {
         ok: false,
         code: 'TOOL_INPUT_INVALID',
-        message: resolution.message ?? `ref ${input.ref} 无法解析为坐标，请重新调用 browser.snapshot。`,
+        message: resolution.message ?? `ref ${input.ref} 无法解析为坐标，请重新调用 browser_snapshot。`,
       };
     }
     if (resolution.occluded) {
@@ -161,23 +161,23 @@ export async function executeTool(
 
   try {
     switch (name) {
-      case 'browser.snapshot':
+      case 'browser_snapshot':
         return await send<PageSnapshotResult>({ type: MessageType.ContentSnapshot, tabId });
 
-      case 'browser.read_page':
+      case 'browser_read_page':
         return await send<PageSnapshot>({
           type: MessageType.ContentReadPage,
           tabId,
           includeCandidateList: input.includeCandidateList === true,
         });
 
-      case 'browser.locate_element': {
+      case 'browser_locate_element': {
         // ref / selector / role 三者至少给一个；role 已非必填。
         if (input.role !== undefined && !isElementRole(input.role)) {
           return invalid(`role 不是受支持的元素角色：${String(input.role)}`);
         }
         if (input.ref === undefined && input.selector === undefined && input.role === undefined) {
-          return invalid('定位需要 ref、selector 或 role 之一。建议先调用 browser.snapshot 取 ref。');
+          return invalid('定位需要 ref、selector 或 role 之一。建议先调用 browser_snapshot 取 ref。');
         }
         return await send<LocateResult>({
           type: MessageType.ContentLocate,
@@ -191,7 +191,7 @@ export async function executeTool(
         });
       }
 
-      case 'browser.click': {
+      case 'browser_click': {
         const target = await resolveTargetPoint(input, options);
         if (!target.ok) return target;
         const label = typeof input.label === 'string' ? input.label : target.value.label;
@@ -204,7 +204,7 @@ export async function executeTool(
         });
       }
 
-      case 'browser.input_text': {
+      case 'browser_input_text': {
         const target = await resolveTargetPoint(input, options);
         if (!target.ok) return target;
         const text = requireString(input, 'text');
@@ -217,7 +217,7 @@ export async function executeTool(
         return await send({ type: MessageType.CdpInputText, tabId, x: target.value.x, y: target.value.y, text: text.value });
       }
 
-      case 'browser.press_key': {
+      case 'browser_press_key': {
         const key = input.key;
         if (typeof key !== 'string') return invalid('缺少 key 字段。');
         return await send({
@@ -228,7 +228,7 @@ export async function executeTool(
         });
       }
 
-      case 'browser.scroll': {
+      case 'browser_scroll': {
         const deltaY = input.deltaY;
         if (typeof deltaY !== 'number' || !Number.isFinite(deltaY)) return invalid('缺少有效的 deltaY。');
         return await send({
@@ -240,10 +240,10 @@ export async function executeTool(
         });
       }
 
-      case 'browser.verify':
+      case 'browser_verify':
         return await runVerification(input as VerifyRequest, options);
 
-      case 'browser.screenshot':
+      case 'browser_screenshot':
         return await send({
           type: MessageType.CdpScreenshot,
           tabId,

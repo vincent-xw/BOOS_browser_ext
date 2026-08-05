@@ -50,7 +50,7 @@ describe('runAgentSession', () => {
 
   it('执行挂起工具并回填后拿到 final', async () => {
     stubResponses(
-      { body: { type: 'pending_tool_calls', calls: [{ callId: 'c1', toolName: 'browser.click', input: { x: 1, y: 2 } }] } },
+      { body: { type: 'pending_tool_calls', calls: [{ callId: 'c1', toolName: 'browser_click', input: { x: 1, y: 2 } }] } },
       { body: finalResult },
     );
     const result = await runAgentSession('点击', { config, sessionId: 's-1', tabId: 1, send: okSender });
@@ -64,13 +64,13 @@ describe('runAgentSession', () => {
         body: {
           type: 'pending_tool_calls',
           calls: [
-            { callId: 'c1', toolName: 'browser.click', input: { x: 1, y: 2 } },
-            { callId: 'c2', toolName: 'browser.press_key', input: { key: 'Enter' } },
+            { callId: 'c1', toolName: 'browser_click', input: { x: 1, y: 2 } },
+            { callId: 'c2', toolName: 'browser_press_key', input: { key: 'Enter' } },
           ],
         },
       },
       // 第一个回填后仍挂起（还剩 c2），第二个回填后才 final。
-      { body: { type: 'pending_tool_calls', calls: [{ callId: 'c2', toolName: 'browser.press_key', input: { key: 'Enter' } }] } },
+      { body: { type: 'pending_tool_calls', calls: [{ callId: 'c2', toolName: 'browser_press_key', input: { key: 'Enter' } }] } },
       { body: finalResult },
     );
     const result = await runAgentSession('组合动作', { config, sessionId: 's-1', tabId: 1, send: okSender });
@@ -101,14 +101,14 @@ describe('runAgentSession', () => {
 
   it('达到最大步数时中止', async () => {
     // 模型持续要求工具调用时必须有硬上限，否则会一直循环下去。
-    stubResponses({ body: { type: 'pending_tool_calls', calls: [{ callId: 'c1', toolName: 'browser.click', input: { x: 1, y: 1 } }] } });
+    stubResponses({ body: { type: 'pending_tool_calls', calls: [{ callId: 'c1', toolName: 'browser_click', input: { x: 1, y: 1 } }] } });
     await expect(
       runAgentSession('循环', { config, sessionId: 's-1', tabId: 1, send: okSender, maxSteps: 3 }),
     ).rejects.toMatchObject({ code: 'STEP_LIMIT' });
   });
 
   it('收到停止信号时中止', async () => {
-    stubResponses({ body: { type: 'pending_tool_calls', calls: [{ callId: 'c1', toolName: 'browser.click', input: { x: 1, y: 1 } }] } });
+    stubResponses({ body: { type: 'pending_tool_calls', calls: [{ callId: 'c1', toolName: 'browser_click', input: { x: 1, y: 1 } }] } });
     const controller = new AbortController();
     controller.abort();
     await expect(
@@ -183,11 +183,11 @@ describe('审批门集成', () => {
     const { sent, send } = trackingSender();
     const { gate: approval, asked } = gate(true);
     stubResponses(
-      { body: { type: 'pending_tool_calls', calls: [{ callId: 'c1', toolName: 'browser.click', input: { x: 1, y: 2 } }] } },
+      { body: { type: 'pending_tool_calls', calls: [{ callId: 'c1', toolName: 'browser_click', input: { x: 1, y: 2 } }] } },
       { body: finalResult },
     );
     await runAgentSession('点击', { config, sessionId: 's-1', tabId: 1, send, approval, currentUrl: 'https://example.com/' });
-    expect(asked).toEqual(['browser.click']);
+    expect(asked).toEqual(['browser_click']);
     expect(sent.some((message) => message.type === 'BOOS_CDP_CLICK')).toBe(true);
   });
 
@@ -195,7 +195,7 @@ describe('审批门集成', () => {
     const { sent, send } = trackingSender();
     const { gate: approval } = gate(false);
     stubResponses(
-      { body: { type: 'pending_tool_calls', calls: [{ callId: 'c1', toolName: 'browser.click', input: { x: 1, y: 2 } }] } },
+      { body: { type: 'pending_tool_calls', calls: [{ callId: 'c1', toolName: 'browser_click', input: { x: 1, y: 2 } }] } },
       { body: finalResult },
     );
     await runAgentSession('点击', { config, sessionId: 's-1', tabId: 1, send, approval, currentUrl: 'https://example.com/' });
@@ -206,7 +206,7 @@ describe('审批门集成', () => {
     const { send } = trackingSender();
     const { gate: approval } = gate(false);
     const { calls } = stubResponses(
-      { body: { type: 'pending_tool_calls', calls: [{ callId: 'c1', toolName: 'browser.click', input: {} }] } },
+      { body: { type: 'pending_tool_calls', calls: [{ callId: 'c1', toolName: 'browser_click', input: {} }] } },
       { body: finalResult },
     );
     await runAgentSession('点击', { config, sessionId: 's-1', tabId: 1, send, approval, currentUrl: 'https://example.com/' });
@@ -217,7 +217,7 @@ describe('审批门集成', () => {
     const { send } = trackingSender();
     const { gate: approval } = gate(false);
     stubResponses(
-      { body: { type: 'pending_tool_calls', calls: [{ callId: 'c1', toolName: 'browser.click', input: {} }] } },
+      { body: { type: 'pending_tool_calls', calls: [{ callId: 'c1', toolName: 'browser_click', input: {} }] } },
       { body: finalResult },
     );
     const events: Array<{ denied?: boolean }> = [];
@@ -231,7 +231,7 @@ describe('审批门集成', () => {
   it('未注入审批门时不做审批（预设流程路径）', async () => {
     const { sent, send } = trackingSender();
     stubResponses(
-      { body: { type: 'pending_tool_calls', calls: [{ callId: 'c1', toolName: 'browser.click', input: { x: 1, y: 2 } }] } },
+      { body: { type: 'pending_tool_calls', calls: [{ callId: 'c1', toolName: 'browser_click', input: { x: 1, y: 2 } }] } },
       { body: finalResult },
     );
     await runAgentSession('点击', { config, sessionId: 's-1', tabId: 1, send });

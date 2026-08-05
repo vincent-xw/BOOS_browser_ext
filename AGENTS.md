@@ -39,7 +39,7 @@ openspec/changes/         # OpenSpec 变更文档（设计、规格、任务）
 
 **自由指令（调试期主用）**：用户下一句自然语言，agent 自己规划动作序列。
 入口 `src/composables/useFreeFormController.ts` + `src/components/FreeFormPanel.vue`。
-模型先调 `browser.snapshot` 看清页面，再用返回的 `ref` 指定目标——不写选择器。
+模型先调 `browser_snapshot` 看清页面，再用返回的 `ref` 指定目标——不写选择器。
 
 **BOSS 预设流程（保留）**：`src/agent/stepLoop.ts` 与 `src/services/cdpActionService.ts`
 里写死的动作序列。等自由指令调到可用后再删。
