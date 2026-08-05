@@ -1,0 +1,43 @@
+src/agent/approvalGate.ts
+  s_3a7e3f0262fa25::t_5a8ea58310aefa 1-164
+src/services/urlAllowlist.ts
+  s_3a7e3f0262fa25::t_e8156b6be7a46b 1-7,11-137,143-147,149-151
+  s_3a7e3f0262fa25::t_3be885d6da2a99 138-142,148
+  s_3a7e3f0262fa25::t_2e5e5fd1a2b2bb 8-10
+entrypoints/background.ts
+  s_3a7e3f0262fa25::t_198b70898f43b6 204-236
+  s_3a7e3f0262fa25::t_81a87e1e25f752 67,73,86,92
+  s_3a7e3f0262fa25::t_1780821173649b 9-10
+src/types/messages.ts
+  s_3a7e3f0262fa25::t_fec2c2afccb3e4 83-84
+src/agent/agentClient.ts
+  s_3a7e3f0262fa25::t_a551e3a7b2ecef 137-138,150-155,163-164,167,170,182-203
+  s_3a7e3f0262fa25::t_4b0467fad558ae 1
+  s_3a7e3f0262fa25::t_290aaf27007d57 87-99
+src/agent/agentClient.test.ts
+  s_3a7e3f0262fa25::t_d50691cfade61d 156-255
+src/services/urlAllowlist.test.ts
+  s_3a7e3f0262fa25::t_b6b0e3ba154ce5 1-179
+src/agent/approvalGate.test.ts
+  s_3a7e3f0262fa25::t_cd571e03e2cdc7 1-189
+src/services/permissionService.ts
+  s_3a7e3f0262fa25::t_1c8ad698631fc6 1-141
+wxt.config.ts
+  s_3a7e3f0262fa25::t_32a379622d5c7f 17,19-24
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "11e4afcdf856c498e1e8bfdcbaf4545366736ba2",
+  "prompts": {},
+  "sessions": {
+    "s_3a7e3f0262fa25": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "514fcb97-bb93-4c67-b3b5-9be9dfa76848",
+        "model": "auto"
+      },
+      "human_author": "xuewen.jia <xuewen.jia@ly.com>"
+    }
+  }
+}
