@@ -1,0 +1,21 @@
+src/types/messages.ts
+  s_3a7e3f0262fa25::t_99c052aff61234 85-86
+entrypoints/background.ts
+  s_3a7e3f0262fa25::t_491bb284767cd7 317-359
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "e4afd7d9c86956cc5c4e0681fe2c8c77cf826c4e",
+  "prompts": {},
+  "sessions": {
+    "s_3a7e3f0262fa25": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "514fcb97-bb93-4c67-b3b5-9be9dfa76848",
+        "model": "deepseek-v4-flash"
+      },
+      "human_author": "xuewen.jia <xuewen.jia@ly.com>"
+    }
+  }
+}
