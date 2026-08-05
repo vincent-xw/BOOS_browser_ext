@@ -1,0 +1,20 @@
+README.md
+  s_3a7e3f0262fa25::t_f8ac5546aa33e4 83-84,86,89-90,92,95-96
+  s_3a7e3f0262fa25::t_6f146686c80115 97
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "eb7340d6ffe2d800451fa678ce4881b21799be7b",
+  "prompts": {},
+  "sessions": {
+    "s_3a7e3f0262fa25": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "514fcb97-bb93-4c67-b3b5-9be9dfa76848",
+        "model": "auto"
+      },
+      "human_author": "xuewen.jia <xuewen.jia@ly.com>"
+    }
+  }
+}
