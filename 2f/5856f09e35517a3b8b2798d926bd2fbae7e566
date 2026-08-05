@@ -1,0 +1,55 @@
+openspec/changes/free-form-browser-agent/proposal.md
+  s_3a7e3f0262fa25::t_abd8abe1b70947 1-100
+openspec/changes/free-form-browser-agent/specs/page-element-discovery/spec.md
+  s_3a7e3f0262fa25::t_ae1cd45fc446c9 1-93
+openspec/changes/free-form-browser-agent/specs/write-action-guardrails/spec.md
+  s_3a7e3f0262fa25::t_30a9def37fe6c3 1-125
+README.md
+  s_3a7e3f0262fa25::t_73fd36d194e4c6 7-21,24-25
+src/components/ExtensionSettingsPanel.vue
+  s_3a7e3f0262fa25::t_bf0d3cbe05c266 5-7
+  s_3a7e3f0262fa25::t_c3fbd379456310 325-334
+  s_3a7e3f0262fa25::t_4b4df825cca35d 237-311
+  s_3a7e3f0262fa25::t_6653c819ef1819 25-89
+entrypoints/sidepanel/App.vue
+  s_3a7e3f0262fa25::t_318d5cd9997571 7
+  s_3a7e3f0262fa25::t_f78f4478d1620b 47-48
+  s_3a7e3f0262fa25::t_53b03bdfcc4a9e 301-309
+  s_3a7e3f0262fa25::t_477bfeac875fbf 517-518
+src/composables/useFreeFormController.ts
+  s_3a7e3f0262fa25::t_dcad171130c734 1-220
+openspec/changes/free-form-browser-agent/tasks.md
+  s_3a7e3f0262fa25::t_c99e5bc9064bb4 1-91
+openspec/changes/free-form-browser-agent/design.md
+  s_3a7e3f0262fa25::t_3773f1984dbac2 1-119
+openspec/changes/free-form-browser-agent/specs/dom-locate-and-verify/spec.md
+  s_3a7e3f0262fa25::t_f0a1fea6879bf8 1-53
+openspec/changes/free-form-browser-agent/specs/agent-tool-host/spec.md
+  s_3a7e3f0262fa25::t_38f5f54b2ce3c5 1-118
+AGENTS.md
+  s_3a7e3f0262fa25::t_9d9504df5ca48f 38-46,60-62,67-71
+src/components/FreeFormPanel.vue
+  s_3a7e3f0262fa25::t_91ff2f8cdccbc2 1-239
+openspec/changes/free-form-browser-agent/specs/dynamic-host-permission/spec.md
+  s_3a7e3f0262fa25::t_29011fbb78a885 1-61
+openspec/changes/free-form-browser-agent/specs/free-form-instruction/spec.md
+  s_3a7e3f0262fa25::t_454385c36f076d 1-84
+openspec/changes/free-form-browser-agent/specs/agent-kit-runtime-completion/spec.md
+  s_3a7e3f0262fa25::t_a41eb35013e0f6 1-88
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "2f5856f09e35517a3b8b2798d926bd2fbae7e566",
+  "prompts": {},
+  "sessions": {
+    "s_3a7e3f0262fa25": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "514fcb97-bb93-4c67-b3b5-9be9dfa76848",
+        "model": "auto"
+      },
+      "human_author": "xuewen.jia <xuewen.jia@ly.com>"
+    }
+  }
+}
