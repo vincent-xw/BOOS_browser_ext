@@ -1,0 +1,57 @@
+src/agent/toolExecutor.ts
+  s_3a7e3f0262fa25::t_7b44aef5b26278 47,54-56
+  s_3a7e3f0262fa25::t_f43eeb54faeb21 77
+  s_3a7e3f0262fa25::t_89d449de67a87a 82-117
+  s_3a7e3f0262fa25::t_4f559affe2e2c8 1-10
+  s_3a7e3f0262fa25::t_60a99bc17ac6c0 164-166,175-181,186,188,195-197,201-203,208-209,212-217
+  s_3a7e3f0262fa25::t_7722904d51e6ef 24,35-42
+  s_a5e77e40c10a94::t_bbf390bc5115ed 43,57-58,118-119
+entrypoints/background.ts
+  s_3a7e3f0262fa25::t_e2820a6c17d0fd 5
+  s_3a7e3f0262fa25::t_7600e66346ad4c 133-163
+entrypoints/content.ts
+  s_3a7e3f0262fa25::t_bf19deb7b12d2c 21-25
+  s_3a7e3f0262fa25::t_3e96248ee1ffab 48-55
+  s_3a7e3f0262fa25::t_a5fafdfebf619c 5
+src/types/messages.ts
+  s_3a7e3f0262fa25::t_9e783b9bb8038d 64-66
+  s_3a7e3f0262fa25::t_b671dd39773813 36-38
+openspec/changes/free-form-browser-agent/.openspec.yaml
+  s_3a7e3f0262fa25::t_59f44d802cb815 1-2
+src/types/cdp.ts
+  s_3a7e3f0262fa25::t_9281ac58457f3a 10-13,24-29,31,33,37-83
+  s_3a7e3f0262fa25::t_f27d07f8a14048 84
+src/services/domLocator.ts
+  s_3a7e3f0262fa25::t_58d3e033ff2068 109-111,114-133,135-136,143-146,166
+  s_3a7e3f0262fa25::t_013d1ecfa50e6b 17-18,20
+  s_3a7e3f0262fa25::t_4e9fa9e132084c 359-542
+src/agent/toolExecutor.test.ts
+  s_3a7e3f0262fa25::t_3c62303dc4f683 18,20,34,42-50
+  s_3a7e3f0262fa25::t_3eb4732dd0cff9 106-119
+  s_3a7e3f0262fa25::t_c701ee8715593f 51,158-239
+  s_3a7e3f0262fa25::t_54a90c0bd6d135 3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "a5bf9a28f2507aebaf7d809eda920ed7a00034d2",
+  "prompts": {},
+  "sessions": {
+    "s_3a7e3f0262fa25": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "514fcb97-bb93-4c67-b3b5-9be9dfa76848",
+        "model": "auto"
+      },
+      "human_author": "xuewen.jia <xuewen.jia@ly.com>"
+    },
+    "s_a5e77e40c10a94": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fd109-4e00-7e40-a619-4e85f265142e",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "xuewen.jia <xuewen.jia@ly.com>"
+    }
+  }
+}
