@@ -1,0 +1,63 @@
+openspec/changes/cdp-real-interaction-agent-kit/tasks.md
+  s_3a7e3f0262fa25::t_89c52dcb53ca10 137-142,146-151,155-160,164-165,168-169
+src/types/settings.ts
+  s_3a7e3f0262fa25::t_9f1796c40305d3 12-17,19-21,36-37,40-42,55-57
+src/services/settingsService.test.ts
+  s_3a7e3f0262fa25::t_b8f643e87f11dc 1-29,31-164
+  s_3a7e3f0262fa25::t_2e87f92213b28f 30
+src/services/cdpActionService.ts
+  s_3a7e3f0262fa25::t_6d3b022da8e4ce 1-144
+src/components/ExtensionSettingsPanel.vue
+  s_3a7e3f0262fa25::t_ef7ef86e6c7810 102,107-112,114,116,119,122-128,130,132,134
+  s_3a7e3f0262fa25::t_f0e056224bb0a4 173,188-193
+  s_3a7e3f0262fa25::t_f36bcc131a9c8e 2,4,19-21,36-49,194
+  s_3a7e3f0262fa25::t_3878d141a8de57 50
+src/composables/usePageIoController.ts
+  s_3a7e3f0262fa25::t_bdc83e64fc8d7d 3
+  s_3a7e3f0262fa25::t_92f22d644592ac 194-195
+  s_3a7e3f0262fa25::t_22a619ef7d6f15 511-527,534
+  s_3a7e3f0262fa25::t_0b851d03673edf 672
+  s_3a7e3f0262fa25::t_673c3915754e30 24
+  s_3a7e3f0262fa25::t_7324a158c3126b 259-266,269-274
+  s_3a7e3f0262fa25::t_fd0c964b0fdc9b 437-448,593
+  s_3a7e3f0262fa25::t_a871b16c211ece 659-660
+  s_3a7e3f0262fa25::t_46f126f8ec0b92 267-268
+  s_3a7e3f0262fa25::t_2125d08b7c3467 165-171
+  s_3a7e3f0262fa25::t_1c480601d8ded1 427,431
+  s_3a7e3f0262fa25::t_6b123b88255a39 536-537,626
+  s_3a7e3f0262fa25::t_8d466adfb4e4d1 564-566,579-592,594
+  s_3a7e3f0262fa25::t_d0c892649cdaad 595
+src/services/llmService.ts
+  s_3a7e3f0262fa25::t_b7a395bf173677 1-3,6-12,25-30,32,34-38,40-61,63-65,70-73,76,78-80,90-91,93,95-102,105-107,110
+entrypoints/sidepanel/App.vue
+  s_3a7e3f0262fa25::t_481b0a05822b99 31,41
+  s_3a7e3f0262fa25::t_f5636c9045c4c5 325-328,338-341
+  s_3a7e3f0262fa25::t_ca64a6263791d8 345-351
+  s_3a7e3f0262fa25::t_b452b8ffaea261 344
+src/services/settingsService.ts
+  s_3a7e3f0262fa25::t_5cf99e362e5886 202-212
+  s_3a7e3f0262fa25::t_79d9d94340de72 115-123,126-129,132-133,136-139
+  s_3a7e3f0262fa25::t_fddad93ed371ef 171
+  s_3a7e3f0262fa25::t_2bae3a944978f9 3
+AGENTS.md
+  s_3a7e3f0262fa25::t_017f28183b45a3 3,14,23-26,28,31-32,41-60,64-69,75,79-80
+README.md
+  s_3a7e3f0262fa25::t_c77a4c34a1f415 10-18
+  s_3a7e3f0262fa25::t_ae09762d649091 49,61-63,66-93,97,102-105
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "febd798570797aa27566253290396f67529e2d38",
+  "prompts": {},
+  "sessions": {
+    "s_3a7e3f0262fa25": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "514fcb97-bb93-4c67-b3b5-9be9dfa76848",
+        "model": "auto"
+      },
+      "human_author": "xuewen.jia <xuewen.jia@ly.com>"
+    }
+  }
+}
