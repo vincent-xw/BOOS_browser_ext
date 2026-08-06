@@ -44,16 +44,25 @@ const { saveFromTurns } = useSkillController();
 
 /** 工具说明面板是否展开。 */
 const toolsHelpVisible = ref(false);
-const ONBOARDING_KEY = 'boos.onboarding.toolsHelpSeen';
+/** 用户是否已点过「我已了解」。首次需要显式确认，后续仅点击查阅不展示按钮。 */
+const toolsHelpAcknowledged = ref(true);
+const ONBOARDING_KEY = 'boos.onboarding.toolsHelpAcknowledged';
+
+/** 首次确认按钮：标记已读并关闭面板。 */
+function acknowledgeToolsHelp() {
+  toolsHelpAcknowledged.value = true;
+  toolsHelpVisible.value = false;
+  void chrome.storage.local.set({ [ONBOARDING_KEY]: true });
+}
 
 onMounted(() => {
   void refreshPageContext();
   void refreshSessions();
-  // 首次使用自动弹出工具说明。
+  // 首次使用自动弹出工具说明，等用户点「我已了解」才关闭并记录。
   void chrome.storage.local.get(ONBOARDING_KEY).then((stored) => {
     if (!stored[ONBOARDING_KEY]) {
       toolsHelpVisible.value = true;
-      void chrome.storage.local.set({ [ONBOARDING_KEY]: true });
+      toolsHelpAcknowledged.value = false;
     }
   });
   // 监听标签页导航与切换：页面跳到其他域名/子域时，host 权限可能失效，需要主动提示授权。
@@ -177,14 +186,12 @@ function stepSummary(output: unknown): { text: string; type: 'success' | 'warnin
           <el-popover
             v-model:visible="toolsHelpVisible"
             placement="bottom-start"
-            :width="320"
+            :width="520"
             trigger="click"
             popper-class="tools-help-popover"
           >
             <template #reference>
-              <el-tooltip content="查看可用工具与操作边界" placement="bottom">
-                <el-icon class="help-icon"><QuestionFilled /></el-icon>
-              </el-tooltip>
+              <el-icon class="help-icon" title="查看可用工具与操作边界"><QuestionFilled /></el-icon>
             </template>
             <div class="tools-help">
               <el-text size="small" type="info">
@@ -198,6 +205,10 @@ function stepSummary(output: unknown): { text: string; type: 'success' | 'warnin
                   </el-tag>
                 </div>
                 <el-text size="small" type="info">{{ tool.description }}</el-text>
+              </div>
+              <!-- 首次需要显式确认已阅读；后续点击图标查看时不再展示按钮 -->
+              <div v-if="!toolsHelpAcknowledged" class="tools-help-actions">
+                <el-button type="primary" size="small" @click="acknowledgeToolsHelp">我已了解，开始使用</el-button>
               </div>
             </div>
           </el-popover>
@@ -400,7 +411,20 @@ function stepSummary(output: unknown): { text: string; type: 'success' | 'warnin
 .tool-header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
+}
+
+.tool-header .el-text {
+  flex: 1;
+}
+
+.tools-help-actions {
+  display: flex;
+  justify-content: center;
+  padding-top: 8px;
+  margin-top: 4px;
+  border-top: 1px solid var(--el-border-color-lighter);
 }
 
 .session-item {
