@@ -138,8 +138,8 @@ describe('工具派发', () => {
 
   it('定位转为 content script 消息', async () => {
     const { sent, send } = recordingSender();
-    await executeTool('browser_locate_element', { role: 'greetButton', index: 2 }, { tabId: 4, send });
-    expect(sent[0]).toEqual({ type: MessageType.ContentLocate, tabId: 4, locator: { role: 'greetButton', index: 2 } });
+    await executeTool('browser_locate_element', { selector: '#search', index: 2 }, { tabId: 4, send });
+    expect(sent[0]).toEqual({ type: MessageType.ContentLocate, tabId: 4, locator: { selector: '#search', index: 2 } });
   });
 
   it('按键转为 CDP 按键消息并带修饰符', async () => {
@@ -150,8 +150,8 @@ describe('工具派发', () => {
 
   it('读取页面转为 content script 消息', async () => {
     const { sent, send } = recordingSender();
-    await executeTool('browser_read_page', { includeCandidateList: true }, { tabId: 6, send });
-    expect(sent[0]).toEqual({ type: MessageType.ContentReadPage, tabId: 6, includeCandidateList: true });
+    await executeTool('browser_read_page', {}, { tabId: 6, send });
+    expect(sent[0]).toEqual({ type: MessageType.ContentReadPage, tabId: 6 });
   });
 });
 

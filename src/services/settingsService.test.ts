@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { parseStoredSettings, validateSettings } from './settingsService';
 import { DEFAULT_SETTINGS } from '../types/settings';
 
-/** 旧版本配置：含已废弃的模型字段与仍有效的业务字段。 */
+/** 旧版本配置：含已废弃的模型字段、BOSS 选择器与批量参数。 */
 const legacyStored = {
   basic: {
     targetDomain: 'www.zhipin.com',
@@ -21,6 +21,8 @@ const legacyStored = {
     perCandidateTimeoutMs: 45000,
     batchSize: 10,
     exportMode: 'processed',
+    bffBaseUrl: 'http://localhost:8787',
+    bffApiToken: 'token-1',
   },
 };
 
@@ -35,15 +37,16 @@ describe('废弃模型配置迁移', () => {
   });
 
   it('序列化后不含任何密钥痕迹', () => {
-    // 这是本次迁移最核心的保证：密钥不得以任何形式留在扩展存储里。
+    // 这是迁移最核心的保证：密钥不得以任何形式留在扩展存储里。
     const result = validateSettings(legacyStored);
     expect(JSON.stringify(result.normalized)).not.toContain('sk-LEAKED-SECRET-VALUE');
     expect(JSON.stringify(result.normalized)).not.toContain('ark.cn-beijing.volces.com');
   });
 
-  it('报告迁移掉的字段', () => {
+  it('报告迁移掉的模型字段', () => {
     const result = validateSettings(legacyStored);
-    expect(result.migratedAwayFields).toEqual(['llmApiEndpoint', 'llmApiKey', 'llmModel', 'llmRequestTimeoutMs']);
+    expect(result.migratedAwayFields).toContain('llmApiKey');
+    expect(result.migratedAwayFields).toContain('llmApiEndpoint');
   });
 
   it('给出可读的迁移提示', () => {
@@ -51,58 +54,72 @@ describe('废弃模型配置迁移', () => {
     expect(result.issues.some((issue) => issue.includes('BFF'))).toBe(true);
   });
 
-  it('保留仍然有效的业务字段', () => {
+  it('保留仍然有效的 BFF 配置', () => {
     const result = validateSettings(legacyStored);
-    expect(result.normalized.basic.candidateListItemSelector).toBe('.my-card');
-    expect(result.normalized.basic.resumeContainerSelector).toBe('#my-resume');
-    expect(result.normalized.advanced.perCandidateTimeoutMs).toBe(45000);
-    expect(result.normalized.advanced.batchSize).toBe(10);
+    expect(result.normalized.advanced.bffBaseUrl).toBe('http://localhost:8787');
+    expect(result.normalized.advanced.bffApiToken).toBe('token-1');
+  });
+});
+
+describe('BOSS 预设流程配置迁移', () => {
+  it('清除 basic 分区（选择器配置）', () => {
+    // 动作序列现由 agent 规划，不再需要写死的角色选择器。
+    const result = validateSettings(legacyStored);
+    expect((result.normalized as unknown as Record<string, unknown>).basic).toBeUndefined();
+  });
+
+  it('清除批量处理与导出配置', () => {
+    const result = validateSettings(legacyStored);
+    const advanced = result.normalized.advanced as unknown as Record<string, unknown>;
+    expect(advanced.perCandidateTimeoutMs).toBeUndefined();
+    expect(advanced.batchSize).toBeUndefined();
+    expect(advanced.exportMode).toBeUndefined();
+  });
+
+  it('序列化后不含 BOSS 选择器', () => {
+    const result = validateSettings(legacyStored);
+    const serialized = JSON.stringify(result.normalized);
+    expect(serialized).not.toContain('zhipin.com');
+    expect(serialized).not.toContain('my-like');
+  });
+
+  it('报告迁移掉的 BOSS 字段', () => {
+    const result = validateSettings(legacyStored);
+    expect(result.migratedAwayFields).toContain('basic');
+    expect(result.migratedAwayFields).toContain('batchSize');
+  });
+
+  it('提示说明页面操作已改为自由指令', () => {
+    const result = validateSettings(legacyStored);
+    expect(result.issues.some((issue) => issue.includes('自由指令'))).toBe(true);
   });
 
   it('无废弃字段时不报告迁移', () => {
-    const result = validateSettings({
-      basic: DEFAULT_SETTINGS.basic,
-      advanced: { ...DEFAULT_SETTINGS.advanced, bffApiToken: 'token-1' },
-    });
+    const result = validateSettings({ advanced: { ...DEFAULT_SETTINGS.advanced, bffApiToken: 'token-1' } });
     expect(result.migratedAwayFields).toBeUndefined();
   });
 });
 
 describe('BFF 配置校验', () => {
   it('保留 BFF 地址并去掉末尾斜杠', () => {
-    const result = validateSettings({
-      basic: DEFAULT_SETTINGS.basic,
-      advanced: { ...DEFAULT_SETTINGS.advanced, bffBaseUrl: 'http://localhost:9000///' },
-    });
+    const result = validateSettings({ advanced: { ...DEFAULT_SETTINGS.advanced, bffBaseUrl: 'http://localhost:9000///' } });
     expect(result.normalized.advanced.bffBaseUrl).toBe('http://localhost:9000');
   });
 
   it('保留接入 token', () => {
-    const result = validateSettings({
-      basic: DEFAULT_SETTINGS.basic,
-      advanced: { ...DEFAULT_SETTINGS.advanced, bffApiToken: '  token-1  ' },
-    });
+    const result = validateSettings({ advanced: { ...DEFAULT_SETTINGS.advanced, bffApiToken: '  token-1  ' } });
     expect(result.normalized.advanced.bffApiToken).toBe('token-1');
   });
 
   it('超时越界时收敛到范围内', () => {
-    const tooSmall = validateSettings({
-      basic: DEFAULT_SETTINGS.basic,
-      advanced: { ...DEFAULT_SETTINGS.advanced, bffRequestTimeoutMs: 100 },
-    });
+    const tooSmall = validateSettings({ advanced: { ...DEFAULT_SETTINGS.advanced, bffRequestTimeoutMs: 100 } });
     expect(tooSmall.normalized.advanced.bffRequestTimeoutMs).toBe(5000);
-    const tooLarge = validateSettings({
-      basic: DEFAULT_SETTINGS.basic,
-      advanced: { ...DEFAULT_SETTINGS.advanced, bffRequestTimeoutMs: 9_999_999 },
-    });
+    const tooLarge = validateSettings({ advanced: { ...DEFAULT_SETTINGS.advanced, bffRequestTimeoutMs: 9_999_999 } });
     expect(tooLarge.normalized.advanced.bffRequestTimeoutMs).toBe(300000);
   });
 
-  it('默认配置不含任何模型字段', () => {
-    const keys = Object.keys(DEFAULT_SETTINGS.advanced);
-    expect(keys).not.toContain('llmApiKey');
-    expect(keys).not.toContain('llmApiEndpoint');
-    expect(keys).not.toContain('llmModel');
+  it('默认配置只含 BFF 三项', () => {
+    expect(Object.keys(DEFAULT_SETTINGS.advanced).sort()).toEqual(['bffApiToken', 'bffBaseUrl', 'bffRequestTimeoutMs']);
   });
 
   it('默认接入 token 为空，强制用户显式配置', () => {
@@ -149,7 +166,7 @@ describe('settingsService.load 写回', () => {
   });
 
   it('无需迁移时不写回', async () => {
-    const clean = { basic: DEFAULT_SETTINGS.basic, advanced: { ...DEFAULT_SETTINGS.advanced, bffApiToken: 't' } };
+    const clean = { advanced: { ...DEFAULT_SETTINGS.advanced, bffApiToken: 't' } };
     const store = new Map<string, string>([['boos-extension:settings', JSON.stringify(clean)]]);
     const setItem = vi.fn();
     vi.stubGlobal('localStorage', {

@@ -12,7 +12,9 @@ import { captureBaseline, clearRefRegistry, locateElement, readPageSnapshot, res
  * 因为 DOM 合成事件的 isTrusted 为 false，拿不到真实焦点与 user activation。
  */
 export default defineContentScript({
-  matches: ['https://*.zhipin.com/*'],
+  // 静态声明留空：实际注册范围由 permissionService 按白名单动态注册。
+  // 这里保留一个不会自动匹配的占位，避免安装时索取任何站点权限。
+  matches: [],
   allFrames: true,
   main() {
     // 变更前基线由 locate/verify 之间共享：domChanged 维度需要「之前是什么」才能判定变化。
@@ -42,7 +44,7 @@ export default defineContentScript({
         }
 
         case MessageType.ContentReadPage:
-          respond({ ok: true, data: readPageSnapshot(message.includeCandidateList ?? false) });
+          respond({ ok: true, data: readPageSnapshot() });
           return false;
 
         case MessageType.ContentSnapshot:

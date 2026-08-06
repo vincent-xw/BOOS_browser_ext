@@ -1,14 +1,3 @@
-export interface BasicSettings {
-  targetDomain: string;
-  candidateListItemSelector: string;
-  candidateNameSelector: string;
-  candidateOpenMode: 'click';
-  resumeContainerSelector: string;
-  favoriteButtonSelector: string;
-}
-
-export type ExportMode = 'processed' | 'all';
-
 /**
  * 高级设置。
  *
@@ -19,13 +8,9 @@ export interface AdvancedSettings {
   bffBaseUrl: string;
   bffApiToken: string;
   bffRequestTimeoutMs: number;
-  perCandidateTimeoutMs: number;
-  batchSize: number;
-  exportMode: ExportMode;
 }
 
 export interface AppSettings {
-  basic: BasicSettings;
   advanced: AdvancedSettings;
 }
 
@@ -40,23 +25,20 @@ export interface SettingsValidationResult {
 /** 已废弃的模型配置字段。读取旧配置时必须清除，尤其是 API Key。 */
 export const DEPRECATED_ADVANCED_FIELDS = ['llmApiEndpoint', 'llmApiKey', 'llmModel', 'llmRequestTimeoutMs'] as const;
 
+/**
+ * 已废弃的 BOSS 预设流程配置。
+ * 动作序列现在由 agent 自行规划，不再需要写死的选择器与批量参数。
+ */
+export const DEPRECATED_BOSS_FIELDS = [
+  'perCandidateTimeoutMs',
+  'batchSize',
+  'exportMode',
+] as const;
+
 export const DEFAULT_SETTINGS: AppSettings = {
-  basic: {
-    targetDomain: 'www.zhipin.com',
-    candidateListItemSelector: 'li.card-item, .card-item, .job-card-wrapper, .candidate-item, .geek-item',
-    candidateNameSelector: '.name, .geek-name, .candidate-name',
-    candidateOpenMode: 'click',
-    resumeContainerSelector:
-      '.resume-item, .resume-detail-wrap, .geek-resume-container, .resume-box',
-    favoriteButtonSelector:
-      'button[ka=like], .btn-like, .btn-collect, .collect-btn, [data-action=favorite]',
-  },
   advanced: {
     bffBaseUrl: 'http://localhost:8787',
     bffApiToken: '',
     bffRequestTimeoutMs: 60000,
-    perCandidateTimeoutMs: 45000,
-    batchSize: 10,
-    exportMode: 'processed' as ExportMode,
   },
 };

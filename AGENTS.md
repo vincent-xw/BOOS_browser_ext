@@ -27,22 +27,20 @@ entrypoints/
 src/
   agent/                  # Tool Host：BFF 客户端、工具执行、单步闭环
   components/             # 共享 UI 组件（ExtensionAppShell.vue 为壳层）
-  composables/            # 状态控制逻辑（usePageIoController.ts）
-  services/               # 页面能力（chromeMcpService 读取、cdpSessionManager 写入、domLocator 定位）
-  types/                  # 共享 TS 类型（page-io.ts、cdp.ts、messages.ts、settings.ts）
+  composables/            # 状态控制逻辑（useFreeFormController.ts）
+  services/               # 页面能力（domLocator 定位、cdpSessionManager 写入、permissionService 权限）
+  types/                  # 共享 TS 类型（cdp.ts、messages.ts、settings.ts）
   env.d.ts                # 全局类型声明（chrome、CSS 模块）
 wxt.config.ts             # WXT 构建与 Manifest 配置
 openspec/changes/         # OpenSpec 变更文档（设计、规格、任务）
 ```
 
-## 两条执行路径
+## 执行路径
 
-**自由指令（调试期主用）**：用户下一句自然语言，agent 自己规划动作序列。
+扩展只有一条执行路径：用户下一句自然语言，agent 自己规划动作序列。
 入口 `src/composables/useFreeFormController.ts` + `src/components/FreeFormPanel.vue`。
 模型先调 `browser_snapshot` 看清页面，再用返回的 `ref` 指定目标——不写选择器。
-
-**BOSS 预设流程（保留）**：`src/agent/stepLoop.ts` 与 `src/services/cdpActionService.ts`
-里写死的动作序列。等自由指令调到可用后再删。
+早先写死的 BOSS 动作序列（stepLoop、cdpActionService 等）已删除。
 
 ## 关键约定
 

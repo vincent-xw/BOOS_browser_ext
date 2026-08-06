@@ -96,7 +96,7 @@ export async function removeAllowRule(index: number): Promise<void> {
 /**
  * 把 content script 的注册范围同步到当前白名单。
  *
- * 静态声明的 matches 只覆盖 zhipin.com，动态注册让它跟着白名单走 ——
+ * 静态 matches 为空；动态注册让脚本跟着白名单走 ——
  * 这样目标页面一打开就有脚本，不必每次靠按需注入兜底。
  */
 export async function syncContentScripts(): Promise<void> {

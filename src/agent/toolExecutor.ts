@@ -1,5 +1,4 @@
 import type {
-  ElementRole,
   LocateResult,
   ObservedRequest,
   PageSnapshot,
@@ -165,25 +164,17 @@ export async function executeTool(
         return await send<PageSnapshotResult>({ type: MessageType.ContentSnapshot, tabId });
 
       case 'browser_read_page':
-        return await send<PageSnapshot>({
-          type: MessageType.ContentReadPage,
-          tabId,
-          includeCandidateList: input.includeCandidateList === true,
-        });
+        return await send<PageSnapshot>({ type: MessageType.ContentReadPage, tabId });
 
       case 'browser_locate_element': {
-        // ref / selector / role 三者至少给一个；role 已非必填。
-        if (input.role !== undefined && !isElementRole(input.role)) {
-          return invalid(`role 不是受支持的元素角色：${String(input.role)}`);
-        }
-        if (input.ref === undefined && input.selector === undefined && input.role === undefined) {
-          return invalid('定位需要 ref、selector 或 role 之一。建议先调用 browser_snapshot 取 ref。');
+        // ref 与 selector 至少给一个。
+        if (input.ref === undefined && input.selector === undefined) {
+          return invalid('定位需要 ref 或 selector。建议先调用 browser_snapshot 取 ref。');
         }
         return await send<LocateResult>({
           type: MessageType.ContentLocate,
           tabId,
           locator: {
-            ...(isElementRole(input.role) ? { role: input.role } : {}),
             ...(typeof input.selector === 'string' ? { selector: input.selector } : {}),
             ...(typeof input.ref === 'number' ? { ref: input.ref } : {}),
             ...(typeof input.index === 'number' ? { index: input.index } : {}),
@@ -257,22 +248,6 @@ export async function executeTool(
       message: error instanceof Error ? error.message : String(error),
     } satisfies ToolFailure;
   }
-}
-
-/** 受支持的元素角色。与 BFF 侧工具定义中的枚举保持一致。 */
-const ELEMENT_ROLES = [
-  'candidateListItem',
-  'candidateName',
-  'resumeContainer',
-  'favoriteButton',
-  'greetButton',
-  'messageInput',
-  'sendButton',
-  'dialog',
-] as const satisfies readonly ElementRole[];
-
-function isElementRole(value: unknown): value is ElementRole {
-  return typeof value === 'string' && (ELEMENT_ROLES as readonly string[]).includes(value);
 }
 
 /**

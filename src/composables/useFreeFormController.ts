@@ -1,12 +1,11 @@
 import { computed, ref } from 'vue';
 
-import { BffError, runAgentSession } from '../agent/agentClient';
+import { BffError, runAgentSession, toBffConfig } from '../agent/agentClient';
 import type { StepEvent } from '../agent/agentClient';
 import { createApprovalGate, summarizeAction } from '../agent/approvalGate';
 import type { ApprovalDecision, ApprovalRequest, GrantScope } from '../agent/approvalGate';
 import { createMessageSender } from '../agent/toolExecutor';
 import { cdpActionService } from '../services/cdpActionService';
-import { toBffConfig } from '../services/llmService';
 import { loadAllowRules } from '../services/permissionService';
 import {
   deleteSession,
@@ -24,8 +23,8 @@ import type { OperationError, OperationState } from '../types/page-io';
 /**
  * 自由指令控制器。
  *
- * 与 usePageIoController（BOSS 预设批量流程）并存：这里是「用户下一句话、agent 自己规划」，
- * 那里是写死的动作序列。等自由指令调到可用后再删预设路径。
+ * 用户下一句自然语言，agent 自己规划动作序列并执行。这是扩展唯一的执行路径 ——
+ * 早先写死的 BOSS 动作序列已删除。
  *
  * 多轮：同一 sessionId 连续下指令，harness 会自动带上历史，
  * 所以「点第三条结果」「回到上一页」这类指代才成立。

@@ -90,7 +90,6 @@ watch(
 watch(
   () => props.settings,
   (value) => {
-    Object.assign(form.basic, value.basic);
     Object.assign(form.advanced, value.advanced);
   },
   { immediate: true, deep: true },
@@ -124,45 +123,6 @@ function onSave() {
 <template>
   <el-drawer v-model="panelVisible" title="设置中心" size="92%" destroy-on-close>
     <el-space direction="vertical" fill :size="16">
-      <el-card shadow="never">
-        <template #header>
-          <div class="settings-header">
-            <el-text tag="b">基础设置</el-text>
-            <el-tag type="info" effect="plain">站点与页面选择器</el-tag>
-          </div>
-        </template>
-
-        <el-form label-position="top">
-          <el-form-item label="目标域名">
-            <el-input v-model="form.basic.targetDomain" placeholder="例如：www.zhipin.com" />
-          </el-form-item>
-          <el-form-item label="候选人列表项选择器">
-            <el-input
-              v-model="form.basic.candidateListItemSelector"
-              placeholder="例如：li.card-item 或 .card-item（也支持直接填 card-item）"
-            />
-          </el-form-item>
-          <el-form-item label="候选人姓名选择器">
-            <el-input
-              v-model="form.basic.candidateNameSelector"
-              placeholder="例如：.name（也支持直接填 name）"
-            />
-          </el-form-item>
-          <el-form-item label="在线简历容器选择器">
-            <el-input
-              v-model="form.basic.resumeContainerSelector"
-              placeholder="例如：#resume（也支持直接填 resume）"
-            />
-          </el-form-item>
-          <el-form-item label="收藏按钮选择器">
-            <el-input
-              v-model="form.basic.favoriteButtonSelector"
-              placeholder="例如：.like-icon-and-text（也支持直接填 like-icon-and-text）"
-            />
-          </el-form-item>
-        </el-form>
-      </el-card>
-
       <el-card shadow="never">
         <template #header>
           <div class="settings-header">
@@ -203,33 +163,6 @@ function onSave() {
               :step="1000"
               controls-position="right"
             />
-          </el-form-item>
-          <el-form-item label="单候选人处理超时（毫秒）">
-            <el-input-number
-              v-model="form.advanced.perCandidateTimeoutMs"
-              :min="10000"
-              :max="180000"
-              :step="1000"
-              controls-position="right"
-            />
-          </el-form-item>
-          <el-form-item label="导出模式">
-            <el-select v-model="form.advanced.exportMode" style="width: 100%">
-              <el-option label="仅导出 LLM 已处理候选人（默认）" value="processed" />
-              <el-option label="导出全部候选人（包括未处理）" value="all" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="单批处理条数">
-            <el-input-number
-              v-model="form.advanced.batchSize"
-              :min="1"
-              :max="100"
-              :step="1"
-              controls-position="right"
-            />
-            <el-text type="info" size="small" style="margin-top: 4px; display: block;">
-              「开始自动处理」每批向 LLM 提交的候选人数量，默认 10
-            </el-text>
           </el-form-item>
         </el-form>
       </el-card>

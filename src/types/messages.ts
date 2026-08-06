@@ -9,9 +9,6 @@ import type { ElementLocator, LocateResult, ObservedRequest, VerifyRequest, Veri
 
 /** 消息类型常量。前缀统一为 BOOS_，避免与页面自身或其他扩展的消息冲突。 */
 export const MessageType = {
-  /** 读取该标签页最近一次候选人列表接口 URL（既有能力）。 */
-  GetLastGeekListUrl: 'BOOS_GET_LAST_GEEK_LIST_URL',
-
   /** 建立 / 释放调试会话。 */
   CdpAttach: 'BOOS_CDP_ATTACH',
   CdpDetach: 'BOOS_CDP_DETACH',
@@ -47,7 +44,6 @@ export type KeyModifier = 'Alt' | 'Control' | 'Meta' | 'Shift';
 
 /** 请求消息的判别联合。tabId 一律显式传递，不依赖 sender 推断。 */
 export type ExtensionRequest =
-  | { type: typeof MessageType.GetLastGeekListUrl; tabId: number }
   | { type: typeof MessageType.CdpAttach; tabId: number }
   | { type: typeof MessageType.CdpDetach; tabId: number }
   | { type: typeof MessageType.CdpSessionState; tabId: number }
@@ -61,7 +57,7 @@ export type ExtensionRequest =
   | { type: typeof MessageType.ContentPing; tabId: number }
   | { type: typeof MessageType.ContentLocate; tabId: number; locator: ElementLocator }
   | { type: typeof MessageType.ContentVerify; tabId: number; request: VerifyRequest }
-  | { type: typeof MessageType.ContentReadPage; tabId: number; includeCandidateList?: boolean }
+  | { type: typeof MessageType.ContentReadPage; tabId: number }
   | { type: typeof MessageType.ContentSnapshot; tabId: number }
   | { type: typeof MessageType.ContentResolveRef; tabId: number; ref: number };
 

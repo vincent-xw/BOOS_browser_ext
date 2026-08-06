@@ -8,27 +8,11 @@
  */
 
 /**
- * 元素的语义角色。仅用于预设流程（收藏/打招呼等）的选择器兜底。
- * 自由指令场景不使用它 —— 那里走 browser_snapshot 返回的 ref。
- */
-export type ElementRole =
-  | 'candidateListItem'
-  | 'candidateName'
-  | 'resumeContainer'
-  | 'favoriteButton'
-  | 'greetButton'
-  | 'messageInput'
-  | 'sendButton'
-  | 'dialog';
-
-/**
- * 定位意图。三种方式，优先级从高到低：
- * 1. ref —— 来自 browser_snapshot 的元素引用，自由指令的主路径
+ * 定位意图。两种方式，优先级从高到低：
+ * 1. ref —— 来自 browser_snapshot 的元素引用，主路径
  * 2. selector —— 显式 CSS 选择器
- * 3. role —— 预设角色，走用户配置 + 站点兜底选择器
  */
 export interface ElementLocator {
-  role?: ElementRole;
   selector?: string;
   ref?: number;
   index?: number;
@@ -90,9 +74,6 @@ export interface ElementRect {
   height: number;
 }
 
-/** 选择器命中来源。用于诊断「是用户配置生效了还是走了站点兜底」。 */
-export type SelectorSource = 'user-config' | 'site-fallback';
-
 /** 定位结果。坐标已换算到主页面坐标系。 */
 export interface LocateResult {
   found: boolean;
@@ -104,7 +85,6 @@ export interface LocateResult {
   occluded?: boolean;
   occludedBy?: string;
   matchedSelector?: string;
-  selectorSource?: SelectorSource;
   frameId?: string;
   /** 全部未命中时列出已尝试的选择器，便于用户调整配置。 */
   triedSelectors?: string[];
@@ -188,7 +168,6 @@ export interface PageSnapshot {
   title: string;
   url: string;
   bodyPreview: string;
-  candidates?: Array<{ index: number; name: string; previewText: string }>;
 }
 
 /** CDP Network 域观测到的请求。用于验证写操作是否真的产生了副作用。 */

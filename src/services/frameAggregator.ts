@@ -41,15 +41,12 @@ export function scoreLocateResult(result: LocateResult): number {
   if (result.visible) score += 20;
   if (result.inViewport) score += 20;
   if (result.occluded) score -= 50;
-  // 用户配置命中优先于站点兜底：用户明确配过的选择器更可能指向他要的元素。
-  if (result.selectorSource === 'user-config') score += 10;
   return score;
 }
 
-/** 页面快照评分：内容更多的 frame 更可能是真正承载业务的那个。 */
-export function scorePageSnapshot(snapshot: { bodyPreview?: string; candidates?: unknown[] }): number {
-  const candidateCount = snapshot.candidates?.length ?? 0;
-  return candidateCount * 1000 + (snapshot.bodyPreview?.length ?? 0);
+/** 页面快照评分：正文更多的 frame 更可能是真正承载内容的那个。 */
+export function scorePageSnapshot(snapshot: { bodyPreview?: string }): number {
+  return snapshot.bodyPreview?.length ?? 0;
 }
 
 /** 合并各 frame 的未命中信息，供全部失败时报告已尝试的选择器。 */

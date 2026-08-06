@@ -3,8 +3,6 @@ withDefaults(
   defineProps<{
     title: string;
     description: string;
-    providerLabel: string;
-    modeLabel: string;
     statusMessage: string;
     statusType: 'success' | 'warning' | 'info' | 'error';
   }>(),

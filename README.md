@@ -1,6 +1,6 @@
 # BOOS Browser Extension
 
-基于 `WXT + Vue 3 + Element Plus` 的 Chrome 扩展，用于在 BOSS 直聘候选人列表页面执行“读取简历 → LLM 判断 → 自动收藏”的半自动流程。
+基于 `WXT + Vue 3 + Element Plus` 的 Chrome 扩展：在允许的页面上用自然语言下指令，由本地 BFF 驱动的 agent 自行规划并执行网页操作。
 
 ## 当前能力
 
@@ -11,11 +11,6 @@
 - 多轮对话：同一会话内保持上下文，可以说「点第三条结果」「回到上一页」
 - 逐步审批：读操作自动放行，写操作弹确认，可选「本次 / 本会话 / 该域名永久」三档授权
 - 写操作双闸门：URL 白名单 + 逐步审批，两者默认都偏严
-
-**BOSS 预设流程（保留）**
-
-- 候选人列表读取、LLM 判定、真实收藏动作
-- 等自由指令调到可用后再删
 
 **公共基础**
 
@@ -53,28 +48,22 @@ agent 能力来自同级仓库 `agent-kit`。开发期通过本地路径依赖�
 
 ## 配置说明
 
-在侧边栏右上角点击“设置”可配置：
+在侧边栏右上角点击「设置」可配置：
 
-### 基础设置
-
-- `targetDomain`：允许执行自动化流程的域名
-- `candidateListItemSelector`：候选人列表项选择器
-- `candidateNameSelector`：候选人姓名选择器
-- `resumeContainerSelector`：在线简历容器选择器
-- `favoriteButtonSelector`：收藏按钮选择器
-
-### 高级设置
+### BFF 接入
 
 - `bffBaseUrl`：BFF 服务地址（默认 `http://localhost:8787`）
-- `bffApiToken`：BFF 接入 token，**不是** LLM API Key
+- `bffApiToken`：BFF 接入 token，**不是** LLM API Key，需与 BFF 的 `BFF_API_TOKEN` 一致
 - `bffRequestTimeoutMs`：BFF 请求超时
-- `perCandidateTimeoutMs`：单候选人处理超时
 
-设置面板提供「检查 BFF 连通性」按钮，失败时会区分「地址不可达」与「凭据无效」。
+设置面板提供「检查 BFF 连通性」按钮，失败时区分「地址不可达」与「凭据无效」。
 
 > 模型 Endpoint、模型名与 API Key **不在扩展中配置** —— 它们只存在于 BFF 进程环境。
-> 从旧版本升级时，扩展会自动清除 `localStorage` 里遗留的 API Key，需要把该 Key
-> 重新配置到 BFF 的 `LLM_API_KEY` 环境变量。
+
+### 允许操作的页面
+
+在设置的「允许操作的页面」中添加域名。添加时浏览器会申请该站点的访问权限；
+未添加的页面只能读取/快照，写操作（点击、输入等）会被拒绝。
 
 ## BFF 服务
 
@@ -112,9 +101,3 @@ cd ../agent-kit && pnpm dev:bff
 - `pnpm test` ✅
 - `pnpm run build` ✅
 
-## 说明与后续
-
-- 当前默认选择器是通用兜底值，建议在真实 BOSS 页面根据 DOM 微调。用户配置的选择器
-  优先级高于内置兜底，无需改代码即可修正。
-- 各验证维度的超时上限当前是保守估计值，需在真实页面实测后收敛
-  （见 `openspec/changes/cdp-real-interaction-agent-kit/poc-notes.md`）。

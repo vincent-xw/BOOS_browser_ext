@@ -1,6 +1,9 @@
 /**
- * 独立诊断服务——用于排查数据读取能力
- * 不依赖 MCP，直接用 chrome.scripting 测试
+ * 页面操作能力诊断。
+ *
+ * 检查三件自由指令运行所必需的事：能否拿到活动标签页、能否注入脚本、
+ * debugger 权限与占用情况、content script 是否就绪。
+ * 不读取任何业务数据。
  */
 
 import { MessageType } from '../types/messages';
@@ -8,9 +11,6 @@ import { MessageType } from '../types/messages';
 export interface DiagnosticResult {
   canQueryActiveTab: boolean;
   canExecuteScript: boolean;
-  candidateListFound: boolean;
-  candidateCount: number;
-  sampleNames: string[];
   hostPermissionOk: boolean;
   /** debugger 权限是否已授予。没有它所有页面写操作都不可用。 */
   debuggerPermissionOk: boolean;
@@ -20,107 +20,13 @@ export interface DiagnosticResult {
   /** content script 是否已就绪。定位与验证都依赖它。 */
   contentScriptReady: boolean;
   error: string | null;
-  details: Record<string, any>;
-}
-
-interface DiagnosticFrameData {
-  listItemCount: number;
-  sampleNames: string[];
-  pageTitle: string;
-  pageUrl: string;
-}
-
-interface AggregatedDiagnosticData extends DiagnosticFrameData {
-  frameCount: number;
-  allFrames: Array<DiagnosticFrameData & { frameId?: number; documentId?: string }>;
+  details: Record<string, unknown>;
 }
 
 async function getActiveTab(): Promise<chrome.tabs.Tab | null> {
-  if (!chrome?.tabs?.query) {
-    return null;
-  }
-
+  if (!chrome?.tabs?.query) return null;
   const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
   return tab ?? null;
-}
-
-async function testExecuteScript(tabId: number): Promise<{
-  ok: boolean;
-  error: string | null;
-  data: Record<string, any>;
-}> {
-  if (!chrome?.scripting?.executeScript) {
-    return {
-      ok: false,
-      error: 'chrome.scripting.executeScript not available',
-      data: {},
-    };
-  }
-
-  try {
-    const injectionResults = await chrome.scripting.executeScript({
-      target: { tabId, allFrames: true },
-      func: () => {
-        const listItems = Array.from(document.querySelectorAll('li.card-item, .card-item'));
-        const names = Array.from(listItems)
-          .slice(0, 3)
-          .map((item) => item.querySelector('.name')?.textContent?.trim() || '(无名称)');
-
-        return {
-          listItemCount: listItems.length,
-          sampleNames: names,
-          pageTitle: document.title,
-          pageUrl: location.href,
-        };
-      },
-    });
-
-    const allFrames: Array<DiagnosticFrameData & { frameId?: number; documentId?: string }> = [];
-    for (const item of injectionResults) {
-      const frameData = item.result as DiagnosticFrameData | undefined;
-      if (!frameData) {
-        continue;
-      }
-
-      allFrames.push({
-        ...frameData,
-        frameId: item.frameId,
-        documentId: item.documentId,
-      });
-    }
-
-    const bestFrame =
-      allFrames
-        .slice()
-        .sort((left, right) => {
-          if (right.listItemCount !== left.listItemCount) {
-            return right.listItemCount - left.listItemCount;
-          }
-
-          return (right.pageUrl?.length ?? 0) - (left.pageUrl?.length ?? 0);
-        })[0] ?? null;
-
-    const aggregatedData: AggregatedDiagnosticData = {
-      listItemCount: bestFrame?.listItemCount ?? 0,
-      sampleNames: bestFrame?.sampleNames ?? [],
-      pageTitle: bestFrame?.pageTitle ?? '',
-      pageUrl: bestFrame?.pageUrl ?? '',
-      frameCount: allFrames.length,
-      allFrames,
-    };
-
-    return {
-      ok: true,
-      error: null,
-      data: aggregatedData as Record<string, any>,
-    };
-  } catch (error) {
-    return {
-      ok: false,
-      error: error instanceof Error ? error.message : String(error),
-      data: {},
-    };
-  }
 }
 
 /**
@@ -136,7 +42,12 @@ async function probeDebugger(tabId: number): Promise<{
 }> {
   const permissionOk = Boolean(chrome?.debugger?.getTargets);
   if (!permissionOk) {
-    return { permissionOk: false, attached: false, occupiedByOther: false, detail: { reason: 'debugger API 不可用，请确认清单已声明 debugger 权限' } };
+    return {
+      permissionOk: false,
+      attached: false,
+      occupiedByOther: false,
+      detail: { reason: 'debugger API 不可用，请确认清单已声明 debugger 权限' },
+    };
   }
   try {
     const targets = await chrome.debugger.getTargets();
@@ -168,13 +79,49 @@ async function probeContentScript(tabId: number): Promise<{ ready: boolean; deta
   }
 }
 
+/** 尝试注入脚本并读取基本页面信息，用于确认 host 权限。 */
+async function testExecuteScript(tabId: number): Promise<{
+  ok: boolean;
+  error: string | null;
+  data: Record<string, unknown>;
+}> {
+  if (!chrome?.scripting?.executeScript) {
+    return { ok: false, error: 'chrome.scripting.executeScript 不可用', data: {} };
+  }
+  try {
+    const injectionResults = await chrome.scripting.executeScript({
+      target: { tabId, allFrames: true },
+      func: () => ({
+        pageTitle: document.title,
+        pageUrl: location.href,
+        readyState: document.readyState,
+        interactiveElements: document.querySelectorAll('a, button, input, [role=button]').length,
+      }),
+    });
+
+    const frames: Array<Record<string, unknown>> = injectionResults
+      .map((item) => item.result as unknown)
+      .filter((result): result is Record<string, unknown> => result !== undefined && result !== null);
+
+    return {
+      ok: frames.length > 0,
+      error: frames.length > 0 ? null : '没有任何 frame 成功执行脚本',
+      data: { frameCount: frames.length, mainFrame: frames[0] ?? {} },
+    };
+  } catch (error) {
+    // "Cannot access contents of the page" 这类错误意味着缺 host 权限。
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+      data: {},
+    };
+  }
+}
+
 export async function runDiagnostics(): Promise<DiagnosticResult> {
   const result: DiagnosticResult = {
     canQueryActiveTab: false,
     canExecuteScript: false,
-    candidateListFound: false,
-    candidateCount: 0,
-    sampleNames: [],
     hostPermissionOk: false,
     debuggerPermissionOk: false,
     debuggerAttached: false,
@@ -185,18 +132,24 @@ export async function runDiagnostics(): Promise<DiagnosticResult> {
   };
 
   try {
-    // 1. Check if we can query active tab
     const tab = await getActiveTab();
     if (!tab?.id) {
       result.error = '无法获取当前活动标签页，请确保插件有 tabs 权限。';
+      return result;
+    }
+    if (!tab.url || tab.url.startsWith('chrome://') || tab.url.startsWith('edge://') || tab.url.startsWith('about:')) {
+      result.error = `浏览器内部页面（${tab.url}）不允许扩展操作，请切换到一个普通网页。`;
       return result;
     }
 
     result.canQueryActiveTab = true;
     result.details.activeTabUrl = tab.url;
 
-    // 2. CDP 与 content script 探针：页面写操作与定位分别依赖这两者。
-    const [debuggerProbe, contentProbe] = await Promise.all([probeDebugger(tab.id), probeContentScript(tab.id)]);
+    // CDP 与 content script 探针：页面写操作与定位分别依赖这两者。
+    const [debuggerProbe, contentProbe] = await Promise.all([
+      probeDebugger(tab.id),
+      probeContentScript(tab.id),
+    ]);
     result.debuggerPermissionOk = debuggerProbe.permissionOk;
     result.debuggerAttached = debuggerProbe.attached;
     result.debuggerOccupiedByOther = debuggerProbe.occupiedByOther;
@@ -204,26 +157,16 @@ export async function runDiagnostics(): Promise<DiagnosticResult> {
     result.details.debugger = debuggerProbe.detail;
     result.details.contentScript = contentProbe.detail;
 
-    // 3. Check if we can execute script
+    // 脚本注入探测：能注入即说明 host 权限已授予。
     const scriptResult = await testExecuteScript(tab.id);
     if (!scriptResult.ok) {
       result.error = `脚本注入失败：${scriptResult.error}`;
       result.details.scriptError = scriptResult.error;
       return result;
     }
-
     result.canExecuteScript = true;
-    result.details.injectionData = scriptResult.data;
-
-    // 4. Parse the injection result
-    const data = scriptResult.data;
-    result.candidateCount = data.listItemCount ?? 0;
-    result.sampleNames = data.sampleNames ?? [];
-    result.candidateListFound = result.candidateCount > 0;
-
-    if (result.candidateListFound) {
-      result.hostPermissionOk = true;
-    }
+    result.hostPermissionOk = true;
+    result.details.injection = scriptResult.data;
 
     return result;
   } catch (error) {
@@ -235,28 +178,14 @@ export async function runDiagnostics(): Promise<DiagnosticResult> {
 export function formatDiagnosticResult(result: DiagnosticResult): string {
   const lines: string[] = [];
 
-  lines.push('=== 浏览器插件数据读取诊断 ===\n');
+  lines.push('=== 页面操作能力诊断 ===\n');
 
-  lines.push(`✓ 能否查询活动标签页：${result.canQueryActiveTab ? '是' : '否'}`);
-  if (result.details.activeTabUrl) {
-    lines.push(`  当前 URL: ${result.details.activeTabUrl}`);
-  }
+  lines.push(`✓ 活动标签页：${result.canQueryActiveTab ? '可访问' : '不可访问'}`);
+  if (result.details.activeTabUrl) lines.push(`  当前 URL: ${result.details.activeTabUrl}`);
 
-  lines.push(`✓ 能否执行脚本注入：${result.canExecuteScript ? '是' : '否'}`);
-  if (result.details.injectionData?.pageUrl) {
-    lines.push(`  命中 Frame URL: ${result.details.injectionData.pageUrl}`);
-  }
-  if (result.details.injectionData?.frameCount) {
-    lines.push(`  扫描 Frame 数: ${result.details.injectionData.frameCount}`);
-  }
-
-  lines.push(`✓ 找到候选人列表：${result.candidateListFound ? '是' : '否'}`);
-  if (result.candidateListFound) {
-    lines.push(`  候选人总数：${result.candidateCount}`);
-    lines.push(`  前 3 个候选人：${result.sampleNames.join(' / ')}`);
-  }
-
-  lines.push(`✓ Host 权限检查：${result.hostPermissionOk ? '已授予' : '未授予'}`);
+  lines.push(`✓ 脚本注入：${result.canExecuteScript ? '成功' : '失败'}`);
+  if (result.details.scriptError) lines.push(`  错误：${result.details.scriptError}`);
+  lines.push(`✓ Host 权限：${result.hostPermissionOk ? '已授予' : '未授予'}`);
 
   lines.push('');
   lines.push('=== CDP 真实交互能力 ===');
@@ -266,15 +195,9 @@ export function formatDiagnosticResult(result: DiagnosticResult): string {
   } else {
     lines.push('  当前未挂调试器（启动任务时会自动 attach）');
   }
-  lines.push(`✓ content script 就绪：${result.contentScriptReady ? '是' : '否（请刷新目标页面）'}`);
+  lines.push(`✓ content script：${result.contentScriptReady ? '就绪' : '未就绪（请刷新目标页面）'}`);
 
-  if (result.error) {
-    lines.push(`\n❌ 诊断错误：${result.error}`);
-  }
-
-  if (Object.keys(result.details).length > 0) {
-    lines.push(`\n详细信息：${JSON.stringify(result.details, null, 2)}`);
-  }
+  if (result.error) lines.push(`\n❌ 诊断错误：${result.error}`);
 
   return lines.join('\n');
 }

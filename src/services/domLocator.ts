@@ -11,12 +11,10 @@ import { DEFAULT_VERIFY_TIMEOUT_MS, VERIFY_POLL_INTERVAL_MS } from '../types/cdp
 import type {
   ElementLocator,
   ElementRect,
-  ElementRole,
   LocateResult,
   PageSnapshot,
   PageSnapshotResult,
   RefResolution,
-  SelectorSource,
   SnapshotEntry,
   VerifyDimension,
   VerifyRequest,
@@ -24,18 +22,6 @@ import type {
 } from '../types/cdp';
 import { elementCenterInMainFrame, isRectInViewport, roundPoint } from './coordinates';
 import type { FrameOffset } from './coordinates';
-
-/** 各角色的站点兜底选择器。用户配置未命中时使用，不得移除。 */
-export const ROLE_FALLBACK_SELECTORS: Record<ElementRole, string> = {
-  candidateListItem: 'li.card-item, .card-item, .job-card-wrapper, .candidate-item, .geek-item',
-  candidateName: '.name, .geek-name, .candidate-name',
-  resumeContainer: '#resume, canvas#resume, .resume-item, .resume-detail-wrap, .geek-resume-container, .resume-box',
-  favoriteButton: '.like-icon-and-text, button[ka=like], .btn-like, .btn-collect, .collect-btn, [data-action=favorite]',
-  greetButton: 'button[ka=chat], .btn-greet, .btn-chat, .start-chat-btn, [ka*=greet]',
-  messageInput: 'textarea.input-area, .chat-input textarea, [contenteditable=true].chat-input, textarea[placeholder*=消息]',
-  sendButton: '.btn-send, button[type=submit].send, [ka=send-message]',
-  dialog: '.dialog-wrap.active, .boss-dialog__wrapper, .lib-resume-recommend, .greet-dialog',
-};
 
 /** 解析逗号分隔的选择器列表，去空去重。 */
 export function parseSelectorList(raw: string | undefined): string[] {
@@ -99,18 +85,14 @@ function detectOcclusion(element: Element, point: { x: number; y: number }): { o
   return { occluded: true, occludedBy: describeElement(hit) };
 }
 
-/** 定位所需的用户配置选择器，按角色给出。 */
-export interface LocatorSelectorConfig {
-  userSelectors?: Partial<Record<ElementRole, string>>;
-}
-
 /**
  * 定位元素并返回坐标与可点击性判定。
  *
- * 三条路径：ref（自由指令主路径）> selector（显式）> role（预设兜底）。
- * role 路径固定「用户配置优先、站点 fallback 兜底」，两者都不得省略。
+ * 两条路径：ref（来自 browser_snapshot，主路径）与显式 CSS 选择器。
+ * 早先的 role 路径（BOSS 预设角色 + 站点兜底选择器）已随预设流程一并移除 ——
+ * 自由指令下模型用 ref 指定目标，不需要预置角色枚举。
  */
-export function locateElement(locator: ElementLocator, config: LocatorSelectorConfig = {}): LocateResult {
+export function locateElement(locator: ElementLocator): LocateResult {
   // ref 路径：元素引用已在快照时登记，直接取当前坐标。
   if (typeof locator.ref === 'number') {
     const resolved = resolveRef(locator.ref);
@@ -131,25 +113,17 @@ export function locateElement(locator: ElementLocator, config: LocatorSelectorCo
     };
   }
 
-  const explicit = locator.selector ? [locator.selector] : [];
-  const userList = locator.role ? parseSelectorList(config.userSelectors?.[locator.role]) : [];
-  const fallbackList = locator.role ? parseSelectorList(ROLE_FALLBACK_SELECTORS[locator.role]) : [];
-  const attempts: Array<{ selector: string; source: SelectorSource }> = [
-    ...explicit.map((selector) => ({ selector, source: 'user-config' as const })),
-    ...userList.map((selector) => ({ selector, source: 'user-config' as const })),
-    ...fallbackList.map((selector) => ({ selector, source: 'site-fallback' as const })),
-  ];
-
+  const attempts = parseSelectorList(locator.selector);
   if (attempts.length === 0) {
-    return { found: false, message: '定位请求既未给出 ref、也未给出 selector 或 role。' };
+    return { found: false, message: '定位请求既未给出 ref，也未给出 selector。建议先调用 browser_snapshot 取 ref。' };
   }
 
   const tried: string[] = [];
-  for (const attempt of attempts) {
-    tried.push(attempt.selector);
+  for (const selector of attempts) {
+    tried.push(selector);
     let matches: Element[];
     try {
-      matches = [...document.querySelectorAll(attempt.selector)];
+      matches = [...document.querySelectorAll(selector)];
     } catch {
       // 非法选择器不应中断整条尝试链，跳过继续。
       continue;
@@ -157,18 +131,18 @@ export function locateElement(locator: ElementLocator, config: LocatorSelectorCo
     const visibleMatches = matches.filter(isVisible);
     const target = visibleMatches[locator.index ?? 0];
     if (!target) continue;
-    return describeTarget(target, attempt.selector, attempt.source);
+    return describeTarget(target, selector);
   }
 
   return {
     found: false,
     triedSelectors: tried,
-    message: `未定位到 ${locator.role ?? locator.selector}，已尝试 ${tried.length} 个选择器。请检查选择器配置。`,
+    message: `未定位到 ${locator.selector}，已尝试 ${tried.length} 个选择器。`,
   };
 }
 
 /** 生成定位结果。元素不在视口内时先滚入视口再重算坐标。 */
-function describeTarget(element: Element, matchedSelector: string, selectorSource: SelectorSource): LocateResult {
+function describeTarget(element: Element, matchedSelector: string): LocateResult {
   const viewport = { width: window.innerWidth, height: window.innerHeight };
   let rect = toRect(element);
 
@@ -194,52 +168,18 @@ function describeTarget(element: Element, matchedSelector: string, selectorSourc
     occluded: occlusion.occluded,
     ...(occlusion.occludedBy ? { occludedBy: occlusion.occludedBy } : {}),
     matchedSelector,
-    selectorSource,
     frameId: window === window.top ? 'main' : (window.location.href || 'sub-frame'),
     message: occlusion.occluded ? `元素中心点被 ${occlusion.occludedBy} 遮挡，不应直接点击。` : '定位成功。',
   };
 }
 
-/** 读取页面快照。 */
-export function readPageSnapshot(includeCandidateList = false, listSelector?: string, nameSelector?: string): PageSnapshot {
-  const snapshot: PageSnapshot = {
+/** 读取页面快照：标题、URL 与正文摘要。 */
+export function readPageSnapshot(): PageSnapshot {
+  return {
     title: document.title,
     url: window.location.href,
     bodyPreview: (document.body?.innerText ?? '').slice(0, 2000),
   };
-  if (!includeCandidateList) return snapshot;
-
-  const selectors = [...parseSelectorList(listSelector), ...parseSelectorList(ROLE_FALLBACK_SELECTORS.candidateListItem)];
-  const nameSelectors = [...parseSelectorList(nameSelector), ...parseSelectorList(ROLE_FALLBACK_SELECTORS.candidateName)];
-  for (const selector of selectors) {
-    let items: Element[];
-    try {
-      items = [...document.querySelectorAll(selector)];
-    } catch {
-      continue;
-    }
-    if (items.length === 0) continue;
-    snapshot.candidates = items.map((item, index) => ({
-      index,
-      name: firstText(item, nameSelectors),
-      previewText: (item.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 500),
-    }));
-    break;
-  }
-  return snapshot;
-}
-
-function firstText(scope: Element, selectors: string[]): string {
-  for (const selector of selectors) {
-    try {
-      const found = scope.querySelector(selector);
-      const text = found?.textContent?.trim();
-      if (text) return text;
-    } catch {
-      continue;
-    }
-  }
-  return '';
 }
 
 /** 元素是否处于禁用态。同时看 disabled 属性与常见禁用类名。 */
@@ -415,7 +355,7 @@ function inferKind(element: Element): string {
  * 按可靠性排序取第一个非空值；文本兜底时压缩空白并截断，避免整段正文进快照。
  */
 function inferLabel(element: Element): string {
-  const candidates = [
+  const labelSources = [
     element.getAttribute('aria-label'),
     element.getAttribute('placeholder'),
     element.getAttribute('title'),
@@ -424,8 +364,8 @@ function inferLabel(element: Element): string {
     element.getAttribute('name'),
     (element.textContent ?? '').replace(/\s+/g, ' ').trim(),
   ];
-  for (const candidate of candidates) {
-    const text = candidate?.trim();
+  for (const source of labelSources) {
+    const text = source?.trim();
     if (text) return text.slice(0, 80);
   }
   return `(${element.tagName.toLowerCase()})`;

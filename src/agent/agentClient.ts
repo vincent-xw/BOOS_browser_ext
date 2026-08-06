@@ -1,6 +1,7 @@
 import type { ApprovalGate } from './approvalGate';
 import { executeTool, isAllowedTool } from './toolExecutor';
 import type { MessageSender } from './toolExecutor';
+import type { AppSettings } from '../types/settings';
 
 /**
  * Tool Host 客户端。
@@ -14,6 +15,15 @@ export interface BffConfig {
   baseUrl: string;
   apiToken: string;
   requestTimeoutMs?: number;
+}
+
+/** 从扩展设置构造 BFF 连接配置。 */
+export function toBffConfig(settings: AppSettings): BffConfig {
+  return {
+    baseUrl: settings.advanced.bffBaseUrl,
+    apiToken: settings.advanced.bffApiToken,
+    requestTimeoutMs: settings.advanced.bffRequestTimeoutMs,
+  };
 }
 
 /** BFF 返回的挂起工具调用。 */

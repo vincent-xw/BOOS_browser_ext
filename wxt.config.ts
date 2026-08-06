@@ -11,13 +11,13 @@ export default defineConfig({
   },
   manifest: {
     name: 'BOOS Browser AI Extension',
-    description: '基于 Vue 3 与 Element Plus 的浏览器插件基础架构。',
+    description: '基于 Vue 3 与 Element Plus 的浏览器 AI 助手：用自然语言指令驱动网页操作。',
     // debugger：页面写操作全部经 chrome.debugger + CDP 下发真实事件。
     // DOM 合成事件的 isTrusted 为 false，拿不到真实焦点与 user activation。
     // webNavigation：枚举 frame 以做跨 frame 聚合定位，不退化为只读主 frame。
-    permissions: ['activeTab', 'scripting', 'tabs', 'sidePanel', 'webRequest', 'webNavigation', 'debugger', 'storage'],
-    // 只保留 BFF 与 BOSS 直聘（既有预设流程需要）。
-    host_permissions: ['https://*.zhipin.com/*', 'http://localhost/*'],
+    permissions: ['activeTab', 'scripting', 'tabs', 'sidePanel', 'webNavigation', 'debugger', 'storage'],
+    // BFF 运行在 localhost，需要访问权限；其他站点由用户在设置里显式添加（见下方 optional_host_permissions）。
+    host_permissions: ['http://localhost/*'],
     /**
      * 调试期可操作任意页面，但域名要由用户在设置里显式添加 ——
      * 声明为 optional 而非直接要 <all_urls>，安装时不会索取「读取所有网站数据」。

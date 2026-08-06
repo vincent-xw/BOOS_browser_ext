@@ -10,14 +10,6 @@ import { ALLOWLIST_STORAGE_KEY, isUrlAllowed } from '../src/services/urlAllowlis
 import type { UrlAllowRule } from '../src/services/urlAllowlist';
 
 export default defineBackground(() => {
-  const requestFilter: chrome.webRequest.RequestFilter = {
-    urls: ['https://*.zhipin.com/*'],
-    types: ['xmlhttprequest'],
-  };
-
-  const latestGeekListUrlByTab = new Map<number, string>();
-  const GEEK_LIST_API_RE = /\/wapi\/zpjob\/rec\/geek\/list/i;
-
   const cdp = createCdpSessionManager();
 
   // ── CDP 会话事件 ────────────────────────────────────────────────
@@ -49,12 +41,6 @@ export default defineBackground(() => {
   const handlers: {
     [K in ExtensionRequest['type']]: (message: Extract<ExtensionRequest, { type: K }>) => Promise<unknown>;
   } = {
-    [MessageType.GetLastGeekListUrl]: async (message) => {
-      const url = latestGeekListUrlByTab.get(message.tabId);
-      if (!url) throw new RoutedError('NOT_FOUND', '尚未捕获该标签页的候选人列表接口地址。');
-      return { url };
-    },
-
     [MessageType.CdpAttach]: (message) => cdp.attach(message.tabId),
     [MessageType.CdpDetach]: async (message) => {
       void message;
@@ -122,7 +108,7 @@ export default defineBackground(() => {
       return {
         found: false,
         triedSelectors: tried,
-        message: `全部 ${outcomes.length} 个 frame 均未定位到 ${message.locator.role}，已尝试 ${tried.length} 个选择器。`,
+        message: `全部 ${outcomes.length} 个 frame 均未定位到目标，已尝试 ${tried.length} 个选择器。建议先调用 browser_snapshot 取 ref。`,
       } satisfies LocateResult;
     },
     [MessageType.ContentVerify]: (message) => forwardToContent(message.tabId, message),
@@ -372,17 +358,6 @@ export default defineBackground(() => {
     if (response.ok) return response.data;
     throw new RoutedError(response.code, response.message, response.details);
   }
-
-  // ── 候选人列表接口 URL 缓存（既有能力）─────────────────────────
-
-  chrome.webRequest.onBeforeRequest.addListener(
-    (details) => {
-      if (details.tabId >= 0 && GEEK_LIST_API_RE.test(details.url)) {
-        latestGeekListUrlByTab.set(details.tabId, details.url);
-      }
-    },
-    requestFilter,
-  );
 
   if (chrome.sidePanel?.setPanelBehavior) {
     chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch((error) => {

@@ -55,12 +55,6 @@ describe('scoreLocateResult', () => {
     expect(scoreLocateResult(located())).toBeGreaterThan(scoreLocateResult(located({ inViewport: false })));
   });
 
-  it('用户配置命中优于站点兜底', () => {
-    expect(scoreLocateResult(located({ selectorSource: 'user-config' }))).toBeGreaterThan(
-      scoreLocateResult(located({ selectorSource: 'site-fallback' })),
-    );
-  });
-
   it('子 frame 命中会胜过主 frame 未命中', () => {
     // 这是「聚合取最优」存在的核心理由：目标内容常常在子 frame 里。
     const outcomes: Array<FrameOutcome<LocateResult>> = [
@@ -72,13 +66,7 @@ describe('scoreLocateResult', () => {
 });
 
 describe('scorePageSnapshot', () => {
-  it('候选人数量优先于正文长度', () => {
-    const withCandidates = scorePageSnapshot({ bodyPreview: 'x', candidates: [{}, {}] });
-    const longBodyOnly = scorePageSnapshot({ bodyPreview: 'x'.repeat(1500) });
-    expect(withCandidates).toBeGreaterThan(longBodyOnly);
-  });
-
-  it('都无候选人时按正文长度比较', () => {
+  it('按正文长度比较', () => {
     expect(scorePageSnapshot({ bodyPreview: 'xxx' })).toBeGreaterThan(scorePageSnapshot({ bodyPreview: 'x' }));
   });
 
