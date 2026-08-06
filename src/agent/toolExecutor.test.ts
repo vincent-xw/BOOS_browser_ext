@@ -15,7 +15,7 @@ function recordingSender() {
 }
 
 describe('白名单', () => {
-  it('包含闭环所需的 9 个工具', () => {
+  it('包含闭环所需的全部工具', () => {
     expect([...TOOL_ALLOWLIST]).toEqual([
       'browser_snapshot',
       'browser_read_page',
@@ -24,6 +24,7 @@ describe('白名单', () => {
       'browser_input_text',
       'browser_press_key',
       'browser_scroll',
+      'browser_go_back',
       'browser_verify',
       'browser_screenshot',
     ]);

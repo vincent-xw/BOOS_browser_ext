@@ -74,4 +74,10 @@ export const TOOLS_CATALOG: readonly ToolDescription[] = [
     description: '截取当前屏幕。当模型反复定位失败时用来观察页面实际状态。',
     category: 'read',
   },
+  {
+    name: 'browser_go_back',
+    title: '返回上一页',
+    description: '浏览器返回。当点击链接把你带到非预期页面（例如下载跳到外部站点）时，用它回到原页面继续任务。这是写操作，需要批准。',
+    category: 'write',
+  },
 ];

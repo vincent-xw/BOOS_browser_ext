@@ -20,6 +20,8 @@ export const MessageType = {
   CdpPressKey: 'BOOS_CDP_PRESS_KEY',
   CdpScroll: 'BOOS_CDP_SCROLL',
   CdpScreenshot: 'BOOS_CDP_SCREENSHOT',
+  /** 浏览器原生返回。用于从非预期导航中恢复。 */
+  CdpGoBack: 'BOOS_CDP_GO_BACK',
 
   /** CDP Network 域观测。 */
   CdpNetworkStart: 'BOOS_CDP_NETWORK_START',
@@ -42,6 +44,24 @@ export type PressableKey = 'Enter' | 'Tab' | 'Escape' | 'Backspace' | 'ArrowUp' 
 
 export type KeyModifier = 'Alt' | 'Control' | 'Meta' | 'Shift';
 
+/**
+ * 写操作后的导航检测结果。
+ *
+ * 这是给模型的强信号：点击/输入/按键可能导致页面跳转，模型自己往往察觉不到，
+ * 会继续在「以为的原页面」上操作。扩展检测到导航后把结果塞进工具返回值，
+ * 模型据此判断是否需要返回。
+ */
+export interface NavigationInfo {
+  /** 操作前的完整 URL。 */
+  from: string;
+  /** 操作后的完整 URL。 */
+  to: string;
+  /** 是否跨域名（host 变化）。跨域名通常意味着离开了任务相关页面。 */
+  changedDomain: boolean;
+  /** 给模型的中文提示，直接说明发生了什么、建议怎么做。 */
+  note: string;
+}
+
 /** 请求消息的判别联合。tabId 一律显式传递，不依赖 sender 推断。 */
 export type ExtensionRequest =
   | { type: typeof MessageType.CdpAttach; tabId: number }
@@ -52,6 +72,7 @@ export type ExtensionRequest =
   | { type: typeof MessageType.CdpPressKey; tabId: number; key: PressableKey; modifiers?: KeyModifier[] }
   | { type: typeof MessageType.CdpScroll; tabId: number; deltaY: number; x?: number; y?: number }
   | { type: typeof MessageType.CdpScreenshot; tabId: number; format?: 'png' | 'jpeg' }
+  | { type: typeof MessageType.CdpGoBack; tabId: number }
   | { type: typeof MessageType.CdpNetworkStart; tabId: number }
   | { type: typeof MessageType.CdpNetworkCollect; tabId: number; urlPattern?: string }
   | { type: typeof MessageType.ContentPing; tabId: number }

@@ -27,6 +27,7 @@ export const TOOL_ALLOWLIST = [
   'browser_input_text',
   'browser_press_key',
   'browser_scroll',
+  'browser_go_back',
   'browser_verify',
   'browser_screenshot',
 ] as const;
@@ -233,6 +234,10 @@ export async function executeTool(
 
       case 'browser_verify':
         return await runVerification(input as VerifyRequest, options);
+
+      case 'browser_go_back':
+        // 浏览器原生返回。用于点击链接触发非预期导航后回到原页面。
+        return await send({ type: MessageType.CdpGoBack, tabId });
 
       case 'browser_screenshot':
         return await send({

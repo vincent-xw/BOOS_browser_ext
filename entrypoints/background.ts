@@ -1,13 +1,14 @@
 import { defineBackground } from 'wxt/utils/define-background';
 
 import { MessageType } from '../src/types/messages';
-import type { ExtensionRequest, MessageErrorCode, MessageResponse } from '../src/types/messages';
+import type { ExtensionRequest, MessageErrorCode, MessageResponse, NavigationInfo } from '../src/types/messages';
 import type { LocateResult, PageSnapshot, PageSnapshotResult, RefResolution } from '../src/types/cdp';
 import { CdpError, createCdpSessionManager, describeDetachReason } from '../src/services/cdpSessionManager';
 import { mergeTriedSelectors, pickBestOutcome, scoreLocateResult, scorePageSnapshot } from '../src/services/frameAggregator';
 import type { FrameOutcome } from '../src/services/frameAggregator';
 import { ALLOWLIST_STORAGE_KEY, isUrlAllowed } from '../src/services/urlAllowlist';
 import type { UrlAllowRule } from '../src/services/urlAllowlist';
+import { detectUrlChange } from '../src/services/navigationDetector';
 
 export default defineBackground(() => {
   const cdp = createCdpSessionManager();
@@ -51,12 +52,19 @@ export default defineBackground(() => {
 
     [MessageType.CdpClick]: async (message) => {
       await requireWritable(message.tabId);
+      const beforeUrl = await currentTabUrl(message.tabId);
       await cdp.click(message.x, message.y);
-      return { ok: true, message: `已在 (${message.x}, ${message.y}) 下发真实点击${message.label ? `：${message.label}` : ''}` };
+      const navigation = await detectNavigation(message.tabId, beforeUrl);
+      return {
+        ok: true,
+        message: `已在 (${message.x}, ${message.y}) 下发真实点击${message.label ? `：${message.label}` : ''}`,
+        ...(navigation ? { navigation } : {}),
+      };
     },
 
     [MessageType.CdpInputText]: async (message) => {
       await requireWritable(message.tabId);
+      const beforeUrl = await currentTabUrl(message.tabId);
       // 先点击建立真实焦点，再 insertText。不改 value —— 那会绕过输入法与框架的受控更新路径。
       await cdp.click(message.x, message.y);
       const focus = await readFocusState(message.tabId);
@@ -65,13 +73,26 @@ export default defineBackground(() => {
       }
       await cdp.insertText(message.text);
       const after = await readFocusState(message.tabId);
-      return { ok: true, message: '文本已通过 Input.insertText 写入。', focused: true, actualValue: after.value };
+      const navigation = await detectNavigation(message.tabId, beforeUrl);
+      return {
+        ok: true,
+        message: '文本已通过 Input.insertText 写入。',
+        focused: true,
+        actualValue: after.value,
+        ...(navigation ? { navigation } : {}),
+      };
     },
 
     [MessageType.CdpPressKey]: async (message) => {
       await requireWritable(message.tabId);
+      const beforeUrl = await currentTabUrl(message.tabId);
       await cdp.pressKey(message.key, message.modifiers ?? []);
-      return { ok: true, message: `已下发按键 ${message.key}` };
+      const navigation = await detectNavigation(message.tabId, beforeUrl);
+      return {
+        ok: true,
+        message: `已下发按键 ${message.key}`,
+        ...(navigation ? { navigation } : {}),
+      };
     },
 
     [MessageType.CdpScroll]: async (message) => {
@@ -84,6 +105,22 @@ export default defineBackground(() => {
     [MessageType.CdpScreenshot]: async (message) => {
       await requireSession(message.tabId);
       return cdp.screenshot(message.format ?? 'png');
+    },
+
+    [MessageType.CdpGoBack]: async (message) => {
+      await requireWritable(message.tabId);
+      const beforeUrl = await currentTabUrl(message.tabId);
+      try {
+        await chrome.tabs.goBack(message.tabId);
+      } catch (error) {
+        return { ok: false, message: `浏览器返回失败：${error instanceof Error ? error.message : String(error)}` };
+      }
+      const navigation = await detectNavigation(message.tabId, beforeUrl);
+      return {
+        ok: true,
+        message: '已执行浏览器返回。',
+        ...(navigation ? { navigation } : {}),
+      };
     },
 
     [MessageType.CdpNetworkStart]: async (message) => {
@@ -201,6 +238,19 @@ export default defineBackground(() => {
     if (!check.allowed) {
       throw new RoutedError('URL_NOT_ALLOWED', `该页面不允许执行写操作：${check.reason}`, url);
     }
+  }
+
+  /**
+   * 检测写操作后是否发生了页面导航。
+   *
+   * 等 URL 稳定后用纯函数比对，结果作为强信号注入工具返回值。
+   * 纯逻辑在 src/services/navigationDetector.ts，单测覆盖。
+   */
+  async function detectNavigation(tabId: number, beforeUrl: string | undefined): Promise<NavigationInfo | undefined> {
+    // 给导航一个发生并稳定的窗口：CDP 点击触发的导航是异步的，立即取 URL 可能还是旧值。
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    const tab = await chrome.tabs.get(tabId).catch(() => undefined);
+    return detectUrlChange(beforeUrl, tab?.url);
   }
 
   /** 读取白名单规则。存储不可用或格式不对时返回空数组（即拒绝一切写操作）。 */
