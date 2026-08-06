@@ -23,6 +23,9 @@ const {
   currentTitle,
   urlAllowed,
   urlAllowReason,
+  hostPermissionOk,
+  requestingPermission,
+  requestHostPermission,
   pendingApproval,
   isBusy,
   canSubmit,
@@ -53,11 +56,22 @@ onMounted(() => {
       void chrome.storage.local.set({ [ONBOARDING_KEY]: true });
     }
   });
+  // 监听标签页导航与切换：页面跳到其他域名/子域时，host 权限可能失效，需要主动提示授权。
+  chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+    if (changeInfo.status === 'complete') void refreshPageContext();
+  });
+  chrome.tabs.onActivated.addListener(() => {
+    void refreshPageContext();
+  });
 });
 
-/** 切换工具说明面板。 */
-function toggleToolsHelp() {
-  toolsHelpVisible.value = !toolsHelpVisible.value;
+async function handleRequestHostPermission() {
+  const result = await requestHostPermission();
+  if (result.ok) {
+    ElMessage.success(result.message);
+  } else {
+    ElMessage.warning(result.message);
+  }
 }
 
 /** 监听技能应用：新会话 + 预填指令，不自动执行。 */
@@ -84,6 +98,25 @@ async function handleSaveSkill() {
 
 /** 是否可保存为技能：至少有一轮对话。 */
 const canSaveSkill = computed(() => turns.value.length > 0 && !isBusy.value);
+
+/**
+ * 把长 URL 压缩成「主域名 + 关键 path」形式，避免长 URL 挤崩布局。
+ * 例如 https://example.com/a/b/c/d?x=1 -> example.com/a/b/c/d
+ */
+const shortUrl = computed(() => {
+  if (!currentUrl.value) return '';
+  try {
+    const url = new URL(currentUrl.value);
+    const host = url.host;
+    // 只保留有意义的 path 段，去掉尾部空段；query/hash 不展示（太长且对操作无意义）。
+    const path = url.pathname.replace(/\/+$/, '');
+    const full = path ? `${host}${path}` : host;
+    // 仍可能很长（路径深），超过 40 字截断。
+    return full.length > 40 ? `${full.slice(0, 40)}…` : full;
+  } catch {
+    return currentUrl.value.length > 40 ? `${currentUrl.value.slice(0, 40)}…` : currentUrl.value;
+  }
+});
 
 /** 审批档位。域名级授权带上当前域名，让用户清楚授权范围。 */
 function currentHost(): string {
@@ -140,9 +173,34 @@ function stepSummary(output: unknown): { text: string; type: 'success' | 'warnin
       <div class="panel-header">
         <div class="title-row">
           <el-text tag="b">自由指令</el-text>
-          <el-tooltip content="查看可用工具与操作边界" placement="bottom">
-            <el-icon class="help-icon" @click="toggleToolsHelp"><QuestionFilled /></el-icon>
-          </el-tooltip>
+          <!-- 工具能力说明：popup 浮层，点击 ? 触发；首次自动弹出由 v-model 控制 -->
+          <el-popover
+            v-model:visible="toolsHelpVisible"
+            placement="bottom-start"
+            :width="320"
+            trigger="click"
+            popper-class="tools-help-popover"
+          >
+            <template #reference>
+              <el-tooltip content="查看可用工具与操作边界" placement="bottom">
+                <el-icon class="help-icon"><QuestionFilled /></el-icon>
+              </el-tooltip>
+            </template>
+            <div class="tools-help">
+              <el-text size="small" type="info">
+                你的指令会触发以下工具。读操作自动执行，写操作需要你逐个批准。
+              </el-text>
+              <div v-for="tool in TOOLS_CATALOG" :key="tool.name" class="tool-item">
+                <div class="tool-header">
+                  <el-text size="small" tag="b">{{ tool.title }}</el-text>
+                  <el-tag size="small" :type="tool.category === 'write' ? 'warning' : 'info'" effect="plain">
+                    {{ tool.category === 'write' ? '写' : '读' }}
+                  </el-tag>
+                </div>
+                <el-text size="small" type="info">{{ tool.description }}</el-text>
+              </div>
+            </div>
+          </el-popover>
         </div>
         <el-space>
           <el-tag :type="urlAllowed ? 'success' : 'warning'" effect="plain" size="small">
@@ -177,32 +235,32 @@ function stepSummary(output: unknown): { text: string; type: 'success' | 'warnin
       </div>
     </template>
 
-    <!-- 工具能力说明：首次自动弹出，后续点击 ? 触发 -->
-    <el-collapse-transition>
-      <div v-show="toolsHelpVisible" class="tools-help">
-        <el-alert type="info" :closable="false" show-icon title="可用工具与操作边界">
-          你的指令会触发以下工具。读操作自动执行，写操作需要你逐个批准。
-        </el-alert>
-        <div v-for="tool in TOOLS_CATALOG" :key="tool.name" class="tool-item">
-          <div class="tool-header">
-            <el-text size="small" tag="b">{{ tool.title }}</el-text>
-            <el-tag size="small" :type="tool.category === 'write' ? 'warning' : 'info'" effect="plain">
-              {{ tool.category === 'write' ? '写' : '读' }}
-            </el-tag>
-          </div>
-          <el-text size="small" type="info">{{ tool.description }}</el-text>
-        </div>
-      </div>
-    </el-collapse-transition>
-
     <el-space direction="vertical" fill :size="12" style="width: 100%">
+      <!-- host 权限缺失：没有它 content script 注入与 CDP 都失败，任务会在中途断掉，必须先授权 -->
+      <el-alert
+        v-if="currentUrl && !hostPermissionOk"
+        type="error"
+        :closable="false"
+        show-icon
+        title="当前页面未授权"
+      >
+        <div class="permission-alert">
+          <span>扩展没有当前页面的访问权限，继续操作会在执行中失败。</span>
+          <el-button size="small" type="primary" :loading="requestingPermission" @click="handleRequestHostPermission">
+            授权访问
+          </el-button>
+        </div>
+      </el-alert>
+
       <el-alert v-if="!urlAllowed" type="warning" :closable="false" show-icon :title="urlAllowReason">
         读取与快照仍可进行，但写操作会被拒绝。请在设置中把该域名加入白名单。
       </el-alert>
 
       <div class="page-context">
         <el-text size="small" type="info" truncated>{{ currentTitle || '(未获取页面标题)' }}</el-text>
-        <el-text size="small" type="info" truncated>{{ currentUrl || '(未获取页面地址)' }}</el-text>
+        <el-tooltip v-if="currentUrl" :content="currentUrl" placement="top">
+          <el-text size="small" type="info" class="url-text">{{ shortUrl }}</el-text>
+        </el-tooltip>
       </div>
 
       <!-- 对话记录：多轮上下文让「点第三条结果」这类指代成立 -->
@@ -378,6 +436,20 @@ function stepSummary(output: unknown): { text: string; type: 'success' | 'warnin
   padding: 8px 10px;
   background: var(--el-fill-color-light);
   border-radius: 4px;
+}
+
+.url-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: help;
+}
+
+.permission-alert {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
 }
 
 .conversation {

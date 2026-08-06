@@ -6,7 +6,7 @@ import { createApprovalGate, summarizeAction } from '../agent/approvalGate';
 import type { ApprovalDecision, ApprovalRequest, GrantScope } from '../agent/approvalGate';
 import { createMessageSender } from '../agent/toolExecutor';
 import { cdpActionService } from '../services/cdpActionService';
-import { loadAllowRules } from '../services/permissionService';
+import { hasUrlPermission, loadAllowRules, requestPermissionForUrl } from '../services/permissionService';
 import {
   deleteSession,
   getSession,
@@ -67,6 +67,10 @@ export function useFreeFormController() {
   const currentTitle = ref('');
   const urlAllowed = ref(false);
   const urlAllowReason = ref('');
+  /** 当前 URL 是否已授予 host 权限。没权限时 content script 注入与 CDP 都会失败。 */
+  const hostPermissionOk = ref(true);
+  /** 申请权限中的状态，避免重复点击。 */
+  const requestingPermission = ref(false);
 
   /** 待用户批准的动作。非空时 UI 弹出审批对话框。 */
   const pendingApproval = ref<ApprovalRequest | null>(null);
@@ -114,6 +118,26 @@ export function useFreeFormController() {
     const check = isUrlAllowed(currentUrl.value, rules);
     urlAllowed.value = check.allowed;
     urlAllowReason.value = check.reason;
+    // host 权限与白名单是两回事：在白名单里但没授予 host 权限，content script 仍然注入失败。
+    // 主动检测并提示，避免任务执行到一半因注入失败中断。
+    hostPermissionOk.value = currentUrl.value ? await hasUrlPermission(currentUrl.value) : true;
+  }
+
+  /**
+   * 主动为当前页面申请 host 权限。
+   * 必须由用户点击触发（chrome.permissions.request 要求用户手势），不能在自动流程里直接调。
+   */
+  async function requestHostPermission(): Promise<{ ok: boolean; message: string }> {
+    if (!currentUrl.value) return { ok: false, message: '当前没有可授权的页面。' };
+    if (requestingPermission.value) return { ok: false, message: '正在申请中...' };
+    requestingPermission.value = true;
+    try {
+      const result = await requestPermissionForUrl(currentUrl.value);
+      if (result.ok) await refreshPageContext();
+      return { ok: result.ok, message: result.message };
+    } finally {
+      requestingPermission.value = false;
+    }
   }
 
   /** 提交一条指令。 */
@@ -253,6 +277,9 @@ export function useFreeFormController() {
     currentTitle,
     urlAllowed,
     urlAllowReason,
+    hostPermissionOk,
+    requestingPermission,
+    requestHostPermission,
     pendingApproval,
     isBusy,
     canSubmit,

@@ -50,6 +50,51 @@ export async function hasPermissionFor(rule: UrlAllowRule): Promise<boolean> {
 }
 
 /**
+ * 为指定 URL 申请 host 权限。
+ *
+ * 与 addAllowRule 的区别：只申请权限、不写白名单。用于页面导航到未授权域名时
+ * 主动提示 -- 避免任务执行到一半因注入失败而中断。
+ *
+ * 注意：chrome.permissions.request 必须由用户手势触发，所以这个函数只能从
+ * 按钮点击等 UI 事件里调用，不能在自动流程里直接调。
+ */
+export async function requestPermissionForUrl(url: string): Promise<{ ok: boolean; message: string; origin?: string }> {
+  let origin: string;
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return { ok: false, message: `不支持的协议：${parsed.protocol}` };
+    }
+    origin = `${parsed.protocol}//${parsed.host}/*`;
+  } catch {
+    return { ok: false, message: '无法解析当前页面地址。' };
+  }
+
+  let granted = true;
+  try {
+    granted = await chrome.permissions.request({ origins: [origin] });
+  } catch (error) {
+    return { ok: false, message: `申请域名权限失败：${error instanceof Error ? error.message : String(error)}` };
+  }
+  if (!granted) return { ok: false, message: '未获得授权。' };
+
+  // 权限授予后把 content script 注册上，这样页面里才有脚本响应消息。
+  await syncContentScripts();
+  return { ok: true, message: '授权成功。', origin };
+}
+
+/** 判断某 URL 是否已授予 host 权限（不含白名单判定）。 */
+export async function hasUrlPermission(url: string): Promise<boolean> {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
+    return await chrome.permissions.contains({ origins: [`${parsed.protocol}//${parsed.host}/*`] });
+  } catch {
+    return false;
+  }
+}
+
+/**
  * 添加一条白名单规则，并在需要时申请对应的 host 权限。
  *
  * 权限申请必须由用户手势触发（点击「添加」按钮），因此这个函数只能从 UI 事件里调用。
