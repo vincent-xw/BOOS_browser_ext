@@ -1,0 +1,73 @@
+entrypoints/sidepanel/App.vue
+  s_3a7e3f0262fa25::t_8dea73a494e249 2,4,10-11,13-15,18,24-27,29-33,35,37,40-45,47,56,62,69,75-78,86,93-102,114-115,124,128,130,158-160,163-165
+entrypoints/background.ts
+  s_3a7e3f0262fa25::t_aa1f5a3abdd5d3 111
+src/services/domLocator.test.ts
+  s_3a7e3f0262fa25::t_eac4e1bde0096b 3,20-22
+src/services/settingsService.ts
+  s_3a7e3f0262fa25::t_af192ebd352ad4 4,36,40-50
+src/services/frameAggregator.test.ts
+  s_3a7e3f0262fa25::t_7d4f5082dd8cad 69
+wxt.config.ts
+  s_3a7e3f0262fa25::t_7c9c9082765cb9 14,18-20
+README.md
+  s_3a7e3f0262fa25::t_b0aa1d80b07c3d 3,51,53,56,59,62-66
+src/services/domLocator.ts
+  s_3a7e3f0262fa25::t_c219c2eb333175 358,367-368
+  s_3a7e3f0262fa25::t_287fc1dd4b3ca6 91-93,95,116,118,122-123,126,134,140,145
+  s_3a7e3f0262fa25::t_e77025516bbd9c 176-178
+src/types/settings.ts
+  s_3a7e3f0262fa25::t_193a067a856bb8 28-36
+  s_3a7e3f0262fa25::t_2e635ebf1f8a79 37
+src/services/cdpActionService.ts
+  s_3a7e3f0262fa25::t_6d8c8fe180f420 4,7,9-13,24
+src/services/settingsService.test.ts
+  s_3a7e3f0262fa25::t_8c2cf30a889ed2 6,24-25,40,46,48-49,57-92,94,98,105,110,115,117,121-122,169
+src/types/cdp.ts
+  s_3a7e3f0262fa25::t_18eacee99b506d 11-12
+entrypoints/content.ts
+  s_3a7e3f0262fa25::t_aa1f5a3abdd5d3 47
+  s_3a7e3f0262fa25::t_a6801e19e2df82 15-17
+src/services/permissionService.ts
+  s_3a7e3f0262fa25::t_1721bcb1ce6f9a 99
+src/services/diagnosticService.ts
+  s_3a7e3f0262fa25::t_699ab62a58fee3 102-103
+  s_3a7e3f0262fa25::t_1c5221f6d47a5e 104
+  s_3a7e3f0262fa25::t_b783cc23eeb709 2-6,23,27,45-50,82-101,105-120,140-143,148-152,160,168-169,181,183-184,186-188,198,200
+src/agent/agentClient.ts
+  s_3a7e3f0262fa25::t_6fad50caede971 4
+  s_3a7e3f0262fa25::t_f09c32f8e121b6 20-28
+src/composables/useFreeFormController.ts
+  s_3a7e3f0262fa25::t_feea418baedca0 3,26-27
+src/types/messages.ts
+  s_3a7e3f0262fa25::t_a6801e19e2df82 60
+src/types/page-io.ts
+  s_3a7e3f0262fa25::t_c9f73d1625bdc1 2-5,8,18-24,29-31
+src/services/frameAggregator.ts
+  s_3a7e3f0262fa25::t_a6801e19e2df82 47-49
+src/agent/toolExecutor.ts
+  s_3a7e3f0262fa25::t_aa1f5a3abdd5d3 170-172
+  s_3a7e3f0262fa25::t_a6801e19e2df82 167
+src/agent/toolExecutor.test.ts
+  s_3a7e3f0262fa25::t_b54570c6655ae6 153-154
+  s_3a7e3f0262fa25::t_dbbe8d843f98aa 141-142
+AGENTS.md
+  s_3a7e3f0262fa25::t_b0aa1d80b07c3d 30-32
+  s_3a7e3f0262fa25::t_20509d166a297d 38,40,43
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "0a8638c1ec64940fc22e293ca5dd0fcb2c305595",
+  "prompts": {},
+  "sessions": {
+    "s_3a7e3f0262fa25": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "514fcb97-bb93-4c67-b3b5-9be9dfa76848",
+        "model": "auto"
+      },
+      "human_author": "xuewen.jia <xuewen.jia@ly.com>"
+    }
+  }
+}
