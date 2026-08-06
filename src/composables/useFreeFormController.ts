@@ -20,6 +20,28 @@ import { settingsService } from '../services/settingsService';
 import { MessageType } from '../types/messages';
 import type { OperationError, OperationState } from '../types/page-io';
 
+/** 工具错误码到可读中文的映射。未知错误码走兜底。 */
+const TOOL_ERROR_LABELS: Record<string, string> = {
+  TOOL_NOT_ALLOWED: '当前不支持这类操作',
+  TOOL_INPUT_INVALID: '指令参数不合法',
+  TOOL_EXECUTION_FAILED: '操作执行失败',
+  USER_DENIED: '已拒绝',
+};
+
+/**
+ * 把工具失败的结构化结果转成用户可读的中文。
+ * 不暴露错误码 -- 用户看到的是「当前不支持这类操作」而非 TOOL_NOT_ALLOWED。
+ */
+function humanizeStepOutput(output: unknown): unknown {
+  if (typeof output !== 'object' || output === null) return output;
+  const record = output as Record<string, unknown>;
+  if (record.ok === false && typeof record.code === 'string') {
+    const reason = typeof record.message === 'string' ? record.message : '';
+    return { ...record, humanText: TOOL_ERROR_LABELS[record.code] ?? '操作未能完成', reason };
+  }
+  return output;
+}
+
 /**
  * 自由指令控制器。
  *
@@ -141,7 +163,7 @@ export function useFreeFormController() {
         currentUrl: currentUrl.value,
         signal: abortController.signal,
         onStep: (event) => {
-          currentSteps.value = [...currentSteps.value, event];
+          currentSteps.value = [...currentSteps.value, { ...event, output: humanizeStepOutput(event.output) }];
         },
       });
       appendTurn('agent', formatOutput(result.output), currentSteps.value);

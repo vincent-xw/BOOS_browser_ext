@@ -1,14 +1,16 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { ElMessage } from 'element-plus';
-import { Setting, Tickets } from '@element-plus/icons-vue';
+import { Collection, Setting, Tickets } from '@element-plus/icons-vue';
 import ExtensionAppShell from '../../src/components/ExtensionAppShell.vue';
 import ExtensionSettingsPanel from '../../src/components/ExtensionSettingsPanel.vue';
 import FreeFormPanel from '../../src/components/FreeFormPanel.vue';
+import SkillPanel from '../../src/components/SkillPanel.vue';
 import { runDiagnostics, formatDiagnosticResult } from '../../src/services/diagnosticService';
 import type { DiagnosticResult } from '../../src/services/diagnosticService';
 import { settingsService } from '../../src/services/settingsService';
 import type { AppSettings } from '../../src/types/settings';
+import type { Skill } from '../../src/services/skillStore';
 
 const loaded = settingsService.load();
 const settings = ref<AppSettings>(loaded.normalized);
@@ -20,6 +22,15 @@ const diagnosticVisible = ref(false);
 const diagnosticRunning = ref(false);
 const diagnosticResult = ref<DiagnosticResult | null>(null);
 const diagnosticOutput = ref('');
+
+const skillPanelVisible = ref(false);
+
+/** 技能应用回调：预填指令到自由指令面板。通过 ref 传递。 */
+const skillToApply = ref<Skill | null>(null);
+
+function handleApplySkill(skill: Skill) {
+  skillToApply.value = skill;
+}
 
 /** BFF 是否已配置。未配置时自由指令无法执行，需要在壳层就提示。 */
 const bffConfigured = computed(
@@ -79,6 +90,9 @@ onMounted(() => {
   >
     <template #header-actions>
       <div class="header-indicators">
+        <el-tooltip content="技能管理" placement="bottom">
+          <el-button :icon="Collection" circle plain @click="skillPanelVisible = true" />
+        </el-tooltip>
         <el-tooltip content="打开设置" placement="bottom">
           <el-button :icon="Setting" circle plain @click="settingsVisible = true" />
         </el-tooltip>
@@ -99,7 +113,9 @@ onMounted(() => {
         description="模型凭据由 BFF 持有，扩展不保存。请在设置中填写 BFF 地址与接入 token。"
       />
 
-      <FreeFormPanel />
+      <FreeFormPanel :skill-to-apply="skillToApply" @skill-applied="skillToApply = null" />
+
+      <SkillPanel v-model="skillPanelVisible" @apply="handleApplySkill" />
     </div>
 
     <ExtensionSettingsPanel

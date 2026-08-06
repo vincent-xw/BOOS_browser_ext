@@ -1,8 +1,15 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue';
-import { ArrowDown, Delete } from '@element-plus/icons-vue';
+import { computed, onMounted, ref, watch } from 'vue';
+import { ArrowDown, Delete, QuestionFilled, Star } from '@element-plus/icons-vue';
+import { ElMessage } from 'element-plus';
 import { useFreeFormController } from '../composables/useFreeFormController';
 import type { GrantScope } from '../agent/approvalGate';
+import { TOOLS_CATALOG } from '../services/toolsCatalog';
+import { useSkillController } from '../composables/useSkillController';
+import type { Skill } from '../services/skillStore';
+
+const props = defineProps<{ skillToApply?: Skill | null }>();
+const emit = defineEmits<{ (event: 'skillApplied'): void; (event: 'saveSkill'): void }>();
 
 const {
   runState,
@@ -30,10 +37,53 @@ const {
   refreshPageContext,
 } = useFreeFormController();
 
+const { saveFromTurns } = useSkillController();
+
+/** 工具说明面板是否展开。 */
+const toolsHelpVisible = ref(false);
+const ONBOARDING_KEY = 'boos.onboarding.toolsHelpSeen';
+
 onMounted(() => {
   void refreshPageContext();
   void refreshSessions();
+  // 首次使用自动弹出工具说明。
+  void chrome.storage.local.get(ONBOARDING_KEY).then((stored) => {
+    if (!stored[ONBOARDING_KEY]) {
+      toolsHelpVisible.value = true;
+      void chrome.storage.local.set({ [ONBOARDING_KEY]: true });
+    }
+  });
 });
+
+/** 切换工具说明面板。 */
+function toggleToolsHelp() {
+  toolsHelpVisible.value = !toolsHelpVisible.value;
+}
+
+/** 监听技能应用：新会话 + 预填指令，不自动执行。 */
+watch(
+  () => props.skillToApply,
+  (skill) => {
+    if (!skill) return;
+    startNewSession();
+    instruction.value = skill.firstInstruction;
+    emit('skillApplied');
+    ElMessage.info(`已加载技能「${skill.name}」，确认后执行`);
+  },
+);
+
+/** 保存当前会话为技能。 */
+async function handleSaveSkill() {
+  const result = await saveFromTurns(turns.value);
+  if (result.ok) {
+    ElMessage.success(result.message);
+  } else {
+    ElMessage.warning(result.message);
+  }
+}
+
+/** 是否可保存为技能：至少有一轮对话。 */
+const canSaveSkill = computed(() => turns.value.length > 0 && !isBusy.value);
 
 /** 审批档位。域名级授权带上当前域名，让用户清楚授权范围。 */
 function currentHost(): string {
@@ -66,10 +116,16 @@ function handleDeleteSession(id: string) {
   void removeSession(id);
 }
 
-/** 步骤输出的简短摘要。失败与被拒的步骤要能一眼看出。 */
+/**
+ * 步骤输出的简短摘要。失败与被拒的步骤要能一眼看出。
+ * 优先使用 humanizeStepOutput 注入的 humanText，不暴露错误码。
+ */
 function stepSummary(output: unknown): { text: string; type: 'success' | 'warning' | 'danger' } {
   const record = (output ?? {}) as Record<string, unknown>;
-  if (record.code === 'USER_DENIED') return { text: '已拒绝', type: 'warning' };
+  if (typeof record.humanText === 'string') {
+    const reason = typeof record.reason === 'string' && record.reason ? `：${record.reason}` : '';
+    return { text: `${record.humanText}${reason}`.slice(0, 80), type: record.code === 'USER_DENIED' ? 'warning' : 'danger' };
+  }
   if (record.ok === false) return { text: String(record.message ?? '失败').slice(0, 60), type: 'danger' };
   if (Array.isArray(record.entries)) return { text: `快照 ${record.entries.length} 个元素`, type: 'success' };
   if (record.passed === true) return { text: '验证通过', type: 'success' };
@@ -82,7 +138,12 @@ function stepSummary(output: unknown): { text: string; type: 'success' | 'warnin
   <el-card shadow="never">
     <template #header>
       <div class="panel-header">
-        <el-text tag="b">自由指令</el-text>
+        <div class="title-row">
+          <el-text tag="b">自由指令</el-text>
+          <el-tooltip content="查看可用工具与操作边界" placement="bottom">
+            <el-icon class="help-icon" @click="toggleToolsHelp"><QuestionFilled /></el-icon>
+          </el-tooltip>
+        </div>
         <el-space>
           <el-tag :type="urlAllowed ? 'success' : 'warning'" effect="plain" size="small">
             {{ urlAllowed ? '当前页面已允许' : '当前页面未允许' }}
@@ -115,6 +176,24 @@ function stepSummary(output: unknown): { text: string; type: 'success' | 'warnin
         </el-space>
       </div>
     </template>
+
+    <!-- 工具能力说明：首次自动弹出，后续点击 ? 触发 -->
+    <el-collapse-transition>
+      <div v-show="toolsHelpVisible" class="tools-help">
+        <el-alert type="info" :closable="false" show-icon title="可用工具与操作边界">
+          你的指令会触发以下工具。读操作自动执行，写操作需要你逐个批准。
+        </el-alert>
+        <div v-for="tool in TOOLS_CATALOG" :key="tool.name" class="tool-item">
+          <div class="tool-header">
+            <el-text size="small" tag="b">{{ tool.title }}</el-text>
+            <el-tag size="small" :type="tool.category === 'write' ? 'warning' : 'info'" effect="plain">
+              {{ tool.category === 'write' ? '写' : '读' }}
+            </el-tag>
+          </div>
+          <el-text size="small" type="info">{{ tool.description }}</el-text>
+        </div>
+      </div>
+    </el-collapse-transition>
 
     <el-space direction="vertical" fill :size="12" style="width: 100%">
       <el-alert v-if="!urlAllowed" type="warning" :closable="false" show-icon :title="urlAllowReason">
@@ -172,6 +251,9 @@ function stepSummary(output: unknown): { text: string; type: 'success' | 'warnin
           执行指令
         </el-button>
         <el-button v-if="isBusy" type="danger" plain @click="stop">停止</el-button>
+        <el-button :icon="Star" :disabled="!canSaveSkill" plain size="small" @click="handleSaveSkill">
+          保存为技能
+        </el-button>
         <el-text size="small" type="info">⌘ + Enter 快速执行</el-text>
       </el-space>
 
@@ -219,6 +301,50 @@ function stepSummary(output: unknown): { text: string; type: 'success' | 'warnin
 </template>
 
 <style scoped>
+.title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.help-icon {
+  cursor: pointer;
+  color: var(--el-text-color-secondary);
+  font-size: 16px;
+}
+
+.help-icon:hover {
+  color: var(--el-color-primary);
+}
+
+.tools-help {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  background: var(--el-fill-color-lighter);
+  border-radius: 6px;
+}
+
+.tool-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+}
+
+.tool-item:last-child {
+  border-bottom: none;
+}
+
+.tool-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .session-item {
   display: flex;
   align-items: center;
