@@ -1,0 +1,50 @@
+src/agent/toolExecutor.ts
+  s_3a7e3f0262fa25::t_11892b696d08a0 30
+  s_3a7e3f0262fa25::t_af6823af28674d 238-241
+openspec/changes/navigation-awareness/specs/free-form-instruction/spec.md
+  s_3a7e3f0262fa25::t_4d99b28be3525e 1-38
+openspec/changes/navigation-awareness/proposal.md
+  s_3a7e3f0262fa25::t_a9d23f10a9a657 1-50
+openspec/changes/navigation-awareness/design.md
+  s_3a7e3f0262fa25::t_e6ef6e73644b4b 1-57
+src/services/navigationDetector.ts
+  s_3a7e3f0262fa25::t_c8597c768fee9d 1-53
+src/services/toolsCatalog.ts
+  s_3a7e3f0262fa25::t_428c3cdfd45b25 77-82
+src/agent/toolExecutor.test.ts
+  s_3a7e3f0262fa25::t_c08446ce306e0c 18,27
+src/services/navigationDetector.test.ts
+  s_3a7e3f0262fa25::t_e59c39d9b760d1 1-48
+openspec/changes/navigation-awareness/.openspec.yaml
+  s_3a7e3f0262fa25::t_e8b35f4e67195d 1-2
+src/types/messages.ts
+  s_3a7e3f0262fa25::t_49119d20ea6a02 47-64
+  s_3a7e3f0262fa25::t_3e076233d23d03 23-24
+  s_3a7e3f0262fa25::t_fbc733c28dda56 75
+entrypoints/background.ts
+  s_3a7e3f0262fa25::t_426da78ee8b490 55,57-62,67,76-83,88,90-95,110-123
+  s_3a7e3f0262fa25::t_9f584129649fc0 11
+  s_3a7e3f0262fa25::t_842bd74431f770 246-247,253
+  s_3a7e3f0262fa25::t_c2055db868cc41 249
+  s_3a7e3f0262fa25::t_c3dee209cc36e8 243-245,248,250-252,254-255
+  s_3a7e3f0262fa25::t_82cb1828c9f511 4
+  s_3a7e3f0262fa25::t_afe8b14cc236ff 124-125
+openspec/changes/navigation-awareness/tasks.md
+  s_3a7e3f0262fa25::t_d548fd5b999dd9 1-30
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "cee2c075fdb7d865a7d93cbeb680aa5eaa129dd5",
+  "prompts": {},
+  "sessions": {
+    "s_3a7e3f0262fa25": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "514fcb97-bb93-4c67-b3b5-9be9dfa76848",
+        "model": "auto"
+      },
+      "human_author": "xuewen.jia <xuewen.jia@ly.com>"
+    }
+  }
+}
