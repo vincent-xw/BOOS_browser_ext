@@ -1,0 +1,62 @@
+src/components/FreeFormPanel.vue
+  s_3a7e3f0262fa25::t_1fc1eb9c41e5f3 2-4,8-12,40
+  s_3a7e3f0262fa25::t_af72358fcd11b9 7,42-45,49-55,58-61,119-122,125-128
+  s_3a7e3f0262fa25::t_d1ddb43e75b4e2 180-197
+  s_3a7e3f0262fa25::t_db12d3d4ddb2eb 254-256
+  s_3a7e3f0262fa25::t_a2d72e983783d8 304-347
+  s_3a7e3f0262fa25::t_5ef3e08c46ad4e 141-146
+  s_3a7e3f0262fa25::t_6f1128d8505dc6 63-87
+  s_3a7e3f0262fa25::t_e3da37d2485981 41
+  s_3a7e3f0262fa25::t_3213514f1a7575 62
+openspec/changes/tools-help-and-skill-save/specs/tools-help/spec.md
+  s_3a7e3f0262fa25::t_0a8bee846ce954 1-37
+openspec/changes/tools-help-and-skill-save/.openspec.yaml
+  s_3a7e3f0262fa25::t_f27cfc14778dd7 1-2
+src/services/skillStore.ts
+  s_3a7e3f0262fa25::t_5d975641d11f8c 1-96
+openspec/changes/tools-help-and-skill-save/specs/skill-management/spec.md
+  s_3a7e3f0262fa25::t_ae5f48b8f5b827 1-64
+src/components/SkillPanel.vue
+  s_3a7e3f0262fa25::t_6151226d54161c 43,46
+  s_3a7e3f0262fa25::t_e508c60cc5eee2 1-6,8,10-36,38-42,44-45,47-117
+  s_3a7e3f0262fa25::t_db1bc5e46270db 7,9,37
+openspec/changes/tools-help-and-skill-save/proposal.md
+  s_3a7e3f0262fa25::t_d70653f3717f2c 1-51
+openspec/changes/tools-help-and-skill-save/tasks.md
+  s_3a7e3f0262fa25::t_3e6ff236ea30ad 1-2,8-10,16-18,25-27,34-36,42-44,48-50
+  s_3a7e3f0262fa25::t_0cf65a758cda42 3-7,11-15,19-24,28-33,37-41,45-47
+src/composables/useFreeFormController.ts
+  s_3a7e3f0262fa25::t_9a196b96ad95d3 166
+  s_3a7e3f0262fa25::t_13a8963a5ad8b8 23-44
+src/composables/useSkillController.ts
+  s_3a7e3f0262fa25::t_0b6cbb863c16ae 1-40
+openspec/changes/tools-help-and-skill-save/design.md
+  s_3a7e3f0262fa25::t_1c154dca463e88 1-59
+entrypoints/sidepanel/App.vue
+  s_3a7e3f0262fa25::t_6c37eb5aef944b 93-95
+  s_3a7e3f0262fa25::t_626da551a7e43d 116-118
+  s_3a7e3f0262fa25::t_b43b13ec93e2f0 4,8,13,26-33
+  s_3a7e3f0262fa25::t_7c1749c2f74325 34
+openspec/changes/tools-help-and-skill-save/specs/free-form-instruction/spec.md
+  s_3a7e3f0262fa25::t_99ad87557c8c03 1-39
+src/services/skillStore.test.ts
+  s_3a7e3f0262fa25::t_00c30a8b693b3a 1-111
+src/services/toolsCatalog.ts
+  s_3a7e3f0262fa25::t_e8d5870e23074a 1-77
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "4d0053a7123d0218ccc720132044019954769b37",
+  "prompts": {},
+  "sessions": {
+    "s_3a7e3f0262fa25": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "514fcb97-bb93-4c67-b3b5-9be9dfa76848",
+        "model": "auto"
+      },
+      "human_author": "xuewen.jia <xuewen.jia@ly.com>"
+    }
+  }
+}
