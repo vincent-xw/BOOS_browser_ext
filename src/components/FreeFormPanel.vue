@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
-import { ArrowDown, Delete, QuestionFilled, Star, CopyDocument } from '@element-plus/icons-vue';
+import { ArrowDown, Delete, QuestionFilled, Star, CopyDocument, Download } from '@element-plus/icons-vue';
 import { ElMessage } from 'element-plus';
 import { useFreeFormController } from '../composables/useFreeFormController';
 import type { GrantScope } from '../agent/approvalGate';
 import { TOOLS_CATALOG } from '../services/toolsCatalog';
 import { useSkillController } from '../composables/useSkillController';
 import type { Skill } from '../services/skillStore';
+import { exportFile } from '../services/exportService';
+import type { ExportFormat } from '../services/exportService';
 
 const props = defineProps<{ skillToApply?: Skill | null }>();
 const emit = defineEmits<{ (event: 'skillApplied'): void; (event: 'saveSkill'): void }>();
@@ -113,6 +115,34 @@ async function handleSaveSkill() {
 
 /** 是否可保存为技能：至少有一轮对话。 */
 const canSaveSkill = computed(() => turns.value.length > 0 && !isBusy.value);
+
+/** 导出对话内容。把所有 agent 回复拼接为文本，按选定格式导出。 */
+async function handleExport(format: ExportFormat) {
+  // 把对话内容拼接：每条轮次带角色标签，agent 的步骤摘要也包含进去。
+  const lines: string[] = [];
+  for (const turn of turns.value) {
+    const role = turn.role === 'user' ? '用户' : turn.role === 'agent' ? 'Agent' : '错误';
+    lines.push(`【${role}】`);
+    lines.push(turn.text);
+    if (turn.steps?.length) {
+      lines.push(`（执行了 ${turn.steps.length} 步）`);
+      for (const step of turn.steps) {
+        const summary = stepSummary(step.output);
+        lines.push(`  ${step.step}. ${step.toolName} -> ${summary.text}`);
+      }
+    }
+    lines.push('');
+  }
+  const content = lines.join('\n');
+  const timestamp = newDatetoISOString().slice(0, 19).replace(/[:T]/g, '-');
+  const result = await exportFile({ filename: `对话记录-${timestamp}`, format, content });
+  if (result.ok) ElMessage.success(result.message);
+  else ElMessage.warning(result.message);
+}
+
+function newDatetoISOString(): string {
+  return new Date().toISOString();
+}
 
 /**
  * 把长 URL 压缩成「主域名 + 关键 path」形式，避免长 URL 挤崩布局。
@@ -344,6 +374,19 @@ function stepSummary(output: unknown): { text: string; type: 'success' | 'warnin
         <el-button :icon="Star" :disabled="!canSaveSkill" plain size="small" @click="handleSaveSkill">
           保存为技能
         </el-button>
+        <el-dropdown :disabled="!canSaveSkill" trigger="click" @command="handleExport">
+          <el-button :icon="Download" :disabled="!canSaveSkill" plain size="small">
+            导出
+            <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+          </el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="txt">导出为 TXT</el-dropdown-item>
+              <el-dropdown-item command="csv">导出为 CSV</el-dropdown-item>
+              <el-dropdown-item command="xlsx">导出为 Excel (XLSX)</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
         <el-text size="small" type="info">⌘ + Enter 快速评估</el-text>
       </el-space>
 

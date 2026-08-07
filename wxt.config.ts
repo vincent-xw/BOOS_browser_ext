@@ -15,7 +15,7 @@ export default defineConfig({
     // debugger：页面写操作全部经 chrome.debugger + CDP 下发真实事件。
     // DOM 合成事件的 isTrusted 为 false，拿不到真实焦点与 user activation。
     // webNavigation：枚举 frame 以做跨 frame 聚合定位，不退化为只读主 frame。
-    permissions: ['activeTab', 'scripting', 'tabs', 'sidePanel', 'webNavigation', 'debugger', 'storage'],
+    permissions: ['activeTab', 'scripting', 'tabs', 'sidePanel', 'webNavigation', 'debugger', 'storage', 'downloads'],
     // BFF 运行在 localhost，需要访问权限；其他站点由用户在设置里显式添加（见下方 optional_host_permissions）。
     host_permissions: ['http://localhost/*'],
     /**
