@@ -59,17 +59,22 @@ export async function exportFile(options: ExportOptions): Promise<{ ok: boolean;
     ext = 'xlsx';
   }
 
-  // 用 dataUrl + chrome.downloads 触发下载。
-  const dataUrl = await blobToDataUrl(blob);
+  // 用 <a download> 触发下载，不依赖 chrome.downloads 权限。
+  // 在 sidepanel 上下文里这是最可靠的方式。
+  const url = URL.createObjectURL(blob);
   try {
-    await chrome.downloads.download({
-      url: dataUrl,
-      filename: `${filename}.${ext}`,
-      saveAs: true,
-    });
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${filename}.${ext}`;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
     return { ok: true, message: `已导出 ${filename}.${ext}` };
   } catch (error) {
     return { ok: false, message: `导出失败：${error instanceof Error ? error.message : String(error)}` };
+  } finally {
+    URL.revokeObjectURL(url);
   }
 }
 
@@ -108,14 +113,4 @@ function escapeCsvValue(value: unknown): string {
     return `"${str.replace(/"/g, '""')}"`;
   }
   return str;
-}
-
-/** Blob 转 dataUrl，供 chrome.downloads.download 使用。 */
-function blobToDataUrl(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
-  });
 }

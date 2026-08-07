@@ -9,6 +9,14 @@ import { useSkillController } from '../composables/useSkillController';
 import type { Skill } from '../services/skillStore';
 import { exportFile } from '../services/exportService';
 import type { ExportFormat } from '../services/exportService';
+import { marked } from 'marked';
+import DOMPurify from 'dompurify';
+
+/** 把 markdown 文本渲染为安全 HTML。 */
+function renderMarkdown(text: string): string {
+  const raw = marked.parse(text, { async: false, breaks: true }) as string;
+  return DOMPurify.sanitize(raw);
+}
 
 const props = defineProps<{ skillToApply?: Skill | null }>();
 const emit = defineEmits<{ (event: 'skillApplied'): void; (event: 'saveSkill'): void }>();
@@ -329,7 +337,8 @@ function stepSummary(output: unknown): { text: string; type: 'success' | 'warnin
               <el-icon><CopyDocument /></el-icon>
             </el-button>
           </div>
-          <div class="turn-text">{{ turn.text }}</div>
+          <div v-if="turn.role === 'agent'" class="turn-text markdown-body" v-html="renderMarkdown(turn.text)"></div>
+          <div v-else class="turn-text">{{ turn.text }}</div>
           <el-collapse v-if="turn.steps?.length" class="turn-steps">
             <el-collapse-item :title="`执行了 ${turn.steps.length} 步`" :name="index">
               <div v-for="step in turn.steps" :key="step.step" class="step-row">
@@ -632,6 +641,83 @@ function stepSummary(output: unknown): { text: string; type: 'success' | 'warnin
   word-break: break-word;
   font-size: 13px;
   margin-top: 2px;
+}
+
+/* Markdown 渲染样式 */
+.markdown-body :deep(h1),
+.markdown-body :deep(h2),
+.markdown-body :deep(h3),
+.markdown-body :deep(h4) {
+  margin: 8px 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.markdown-body :deep(h1) { font-size: 16px; }
+.markdown-body :deep(h2) { font-size: 15px; }
+
+.markdown-body :deep(p) {
+  margin: 4px 0;
+}
+
+.markdown-body :deep(ul),
+.markdown-body :deep(ol) {
+  margin: 4px 0;
+  padding-left: 20px;
+}
+
+.markdown-body :deep(li) {
+  margin: 2px 0;
+}
+
+.markdown-body :deep(code) {
+  background: var(--el-fill-color-dark);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 12px;
+  font-family: monospace;
+}
+
+.markdown-body :deep(pre) {
+  background: var(--el-fill-color-dark);
+  padding: 8px;
+  border-radius: 4px;
+  overflow-x: auto;
+  margin: 4px 0;
+}
+
+.markdown-body :deep(pre code) {
+  background: none;
+  padding: 0;
+}
+
+.markdown-body :deep(blockquote) {
+  border-left: 3px solid var(--el-border-color);
+  padding-left: 10px;
+  margin: 4px 0;
+  color: var(--el-text-color-secondary);
+}
+
+.markdown-body :deep(a) {
+  color: var(--el-color-primary);
+  text-decoration: none;
+}
+
+.markdown-body :deep(table) {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 4px 0;
+}
+
+.markdown-body :deep(th),
+.markdown-body :deep(td) {
+  border: 1px solid var(--el-border-color);
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.markdown-body :deep(strong) {
+  font-weight: 600;
 }
 
 .turn-steps {
