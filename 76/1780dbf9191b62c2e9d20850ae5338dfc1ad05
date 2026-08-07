@@ -1,0 +1,27 @@
+src/services/exportService.ts
+  s_3a7e3f0262fa25::t_c1523a197744ef 1-121
+wxt.config.ts
+  s_3a7e3f0262fa25::t_d5a1b8db554ac4 18
+src/components/FreeFormPanel.vue
+  s_3a7e3f0262fa25::t_fedfcc792c17af 377-389
+  s_3a7e3f0262fa25::t_19a61702b4faa3 137
+  s_3a7e3f0262fa25::t_cf2a00260ee032 3
+  s_3a7e3f0262fa25::t_5f5350dfc0dafc 10-11
+  s_3a7e3f0262fa25::t_df6950d81ea6a0 119-136,138-146
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "761780dbf9191b62c2e9d20850ae5338dfc1ad05",
+  "prompts": {},
+  "sessions": {
+    "s_3a7e3f0262fa25": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "514fcb97-bb93-4c67-b3b5-9be9dfa76848",
+        "model": "auto"
+      },
+      "human_author": "xuewen.jia <xuewen.jia@ly.com>"
+    }
+  }
+}
