@@ -1,0 +1,27 @@
+package.json
+  s_a05627423297e0::t_33c92e3bd5836e 17,19
+src/services/exportService.ts
+  s_a05627423297e0::t_61e39c1a4a18ac 62-64,66-72,76-77
+src/components/FreeFormPanel.vue
+  s_a05627423297e0::t_dbc0c85bb1293c 340-341
+  s_a05627423297e0::t_6eecbcfddd7401 12-19
+  s_a05627423297e0::t_ed24797526e08d 646-722
+pnpm-lock.yaml
+  s_a05627423297e0::t_26ddf55c089e29 17-19,23-25,681-683,1097-1099,1603-1607,2782-2784,3222-3225,3681-3682
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "67be7ef7d6fe28ad7db6e81d61fa3af88145b04f",
+  "prompts": {},
+  "sessions": {
+    "s_a05627423297e0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ef888fdd-3960-4dd1-a9e4-276b31912f28",
+        "model": "glm-5.2"
+      },
+      "human_author": "xuewen.jia <xuewen.jia@ly.com>"
+    }
+  }
+}
