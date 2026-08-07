@@ -1,0 +1,38 @@
+src/components/FreeFormPanel.vue
+  s_3a7e3f0262fa25::t_dc616a09bf3e40 3
+  s_3a7e3f0262fa25::t_abd2516d9dcaa9 167-176
+  s_3a7e3f0262fa25::t_55b458659d00ee 296-301
+  s_3a7e3f0262fa25::t_3b8d7d4d1d0c6f 564-578
+src/services/settingsService.ts
+  s_3a7e3f0262fa25::t_ccaf27b8be578a 73-78
+  s_3a7e3f0262fa25::t_0b495282d4099d 67-72
+src/composables/useFreeFormController.ts
+  s_3a7e3f0262fa25::t_5de32e2d566e1b 280
+src/services/settingsService.test.ts
+  s_3a7e3f0262fa25::t_a8da66f1e21237 121,123-126
+  s_3a7e3f0262fa25::t_952c80543c2a8e 122
+src/components/ExtensionSettingsPanel.vue
+  s_3a7e3f0262fa25::t_ce438ee9ed0c9f 167-178
+  s_3a7e3f0262fa25::t_922f44162ce06a 179-190
+src/types/settings.ts
+  s_3a7e3f0262fa25::t_dc67d9cbf940d3 11-12
+  s_3a7e3f0262fa25::t_88dcf66351d4d3 13-14
+  s_3a7e3f0262fa25::t_e89a248daf3abf 47
+  s_3a7e3f0262fa25::t_65eafd805abf28 48
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "2cbef09ed45f50b339011877dba04a7a4083315d",
+  "prompts": {},
+  "sessions": {
+    "s_3a7e3f0262fa25": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "514fcb97-bb93-4c67-b3b5-9be9dfa76848",
+        "model": "glm-5.2"
+      },
+      "human_author": "xuewen.jia <xuewen.jia@ly.com>"
+    }
+  }
+}
