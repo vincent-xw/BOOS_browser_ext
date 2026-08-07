@@ -164,6 +164,30 @@ function onSave() {
               controls-position="right"
             />
           </el-form-item>
+          <el-form-item label="任务最大步数">
+            <el-input-number
+              v-model="form.advanced.maxSteps"
+              :min="5"
+              :max="200"
+              :step="5"
+              controls-position="right"
+            />
+            <el-text type="info" size="small" style="margin-left: 8px;">
+              防止模型无限循环，中等复杂度建议 50-80
+            </el-text>
+          </el-form-item>
+          <el-form-item label="LLM 重试次数">
+            <el-input-number
+              v-model="form.advanced.llmMaxRetries"
+              :min="0"
+              :max="5"
+              :step="1"
+              controls-position="right"
+            />
+            <el-text type="info" size="small" style="margin-left: 8px;">
+              网络错误与 5xx 自动重试，4xx 不重试
+            </el-text>
+          </el-form-item>
         </el-form>
       </el-card>
 

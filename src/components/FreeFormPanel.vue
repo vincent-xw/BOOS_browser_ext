@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
-import { ArrowDown, Delete, QuestionFilled, Star } from '@element-plus/icons-vue';
+import { ArrowDown, Delete, QuestionFilled, Star, CopyDocument } from '@element-plus/icons-vue';
 import { ElMessage } from 'element-plus';
 import { useFreeFormController } from '../composables/useFreeFormController';
 import type { GrantScope } from '../agent/approvalGate';
@@ -164,6 +164,16 @@ function handleDeleteSession(id: string) {
   void removeSession(id);
 }
 
+/** 复制对话文本到剪贴板。 */
+function copyTurnText(text: string, index: number) {
+  navigator.clipboard.writeText(text).then(() => {
+    ElMessage.success({ message: '已复制', duration: 1500 });
+  }).catch(() => {
+    ElMessage.warning('复制失败，请手动选择文本复制');
+  });
+  void index;
+}
+
 /**
  * 步骤输出的简短摘要。失败与被拒的步骤要能一眼看出。
  * 优先使用 humanizeStepOutput 注入的 humanText，不暴露错误码。
@@ -283,7 +293,12 @@ function stepSummary(output: unknown): { text: string; type: 'success' | 'warnin
       <!-- 对话记录：多轮上下文让「点第三条结果」这类指代成立 -->
       <div v-if="turns.length" class="conversation">
         <div v-for="(turn, index) in turns" :key="index" :class="['turn', `turn-${turn.role}`]">
-          <el-text size="small" tag="b">{{ turn.role === 'user' ? '你' : turn.role === 'agent' ? 'Agent' : '错误' }}</el-text>
+          <div class="turn-header">
+            <el-text size="small" tag="b">{{ turn.role === 'user' ? '你' : turn.role === 'agent' ? 'Agent' : '错误' }}</el-text>
+            <el-button v-if="turn.text" link size="small" class="copy-btn" @click="copyTurnText(turn.text, index)">
+              <el-icon><CopyDocument /></el-icon>
+            </el-button>
+          </div>
           <div class="turn-text">{{ turn.text }}</div>
           <el-collapse v-if="turn.steps?.length" class="turn-steps">
             <el-collapse-item :title="`执行了 ${turn.steps.length} 步`" :name="index">
@@ -544,6 +559,21 @@ function stepSummary(output: unknown): { text: string; type: 'success' | 'warnin
   padding: 8px 10px;
   border-radius: 6px;
   background: var(--el-fill-color-lighter);
+}
+
+.turn-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.copy-btn {
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.turn:hover .copy-btn {
+  opacity: 1;
 }
 
 .turn-user {

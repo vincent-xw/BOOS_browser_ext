@@ -64,6 +64,18 @@ export function validateSettings(raw: unknown): SettingsValidationResult {
     issues.push('BFF 请求超时配置非法，已回退默认值。');
   }
 
+  if (typeof advanced.maxSteps === 'number' && Number.isFinite(advanced.maxSteps)) {
+    normalized.advanced.maxSteps = clamp(Math.floor(advanced.maxSteps), 5, 200);
+  } else if (advanced.maxSteps !== undefined) {
+    issues.push('最大步数配置非法，已回退默认值。');
+  }
+
+  if (typeof advanced.llmMaxRetries === 'number' && Number.isFinite(advanced.llmMaxRetries)) {
+    normalized.advanced.llmMaxRetries = clamp(Math.floor(advanced.llmMaxRetries), 0, 5);
+  } else if (advanced.llmMaxRetries !== undefined) {
+    issues.push('LLM 重试次数配置非法，已回退默认值。');
+  }
+
   return {
     valid: issues.length === 0,
     issues,

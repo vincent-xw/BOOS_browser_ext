@@ -277,6 +277,7 @@ export function useFreeFormController() {
         send,
         approval: approvalGate,
         currentUrl: currentUrl.value,
+        maxSteps: settings.value.advanced.maxSteps,
         signal: abortController.signal,
         onStep: (event) => {
           currentSteps.value = [...currentSteps.value, { ...event, output: humanizeStepOutput(event.output) }];

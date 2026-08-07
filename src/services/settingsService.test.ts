@@ -118,8 +118,12 @@ describe('BFF 配置校验', () => {
     expect(tooLarge.normalized.advanced.bffRequestTimeoutMs).toBe(300000);
   });
 
-  it('默认配置只含 BFF 三项', () => {
-    expect(Object.keys(DEFAULT_SETTINGS.advanced).sort()).toEqual(['bffApiToken', 'bffBaseUrl', 'bffRequestTimeoutMs']);
+  it('默认配置含 BFF 与步数配置', () => {
+    expect(Object.keys(DEFAULT_SETTINGS.advanced).sort()).toEqual(['bffApiToken', 'bffBaseUrl', 'bffRequestTimeoutMs', 'llmMaxRetries', 'maxSteps']);
+  });
+
+  it('默认最大步数为 50', () => {
+    expect(DEFAULT_SETTINGS.advanced.maxSteps).toBe(50);
   });
 
   it('默认接入 token 为空，强制用户显式配置', () => {

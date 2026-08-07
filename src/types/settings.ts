@@ -8,6 +8,10 @@ export interface AdvancedSettings {
   bffBaseUrl: string;
   bffApiToken: string;
   bffRequestTimeoutMs: number;
+  /** 任务执行最大步数，防止模型无限循环。默认 50。 */
+  maxSteps: number;
+  /** LLM 请求最大重试次数（0-5），默认 3。只重试网络错误与 5xx/429。 */
+  llmMaxRetries: number;
 }
 
 export interface AppSettings {
@@ -40,5 +44,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     bffBaseUrl: 'http://localhost:8787',
     bffApiToken: '',
     bffRequestTimeoutMs: 60000,
+    maxSteps: 50,
+    llmMaxRetries: 3,
   },
 };
