@@ -1,7 +1,7 @@
 import { computed, ref } from 'vue';
 
-import { BffError, runAgentSession, toBffConfig } from '../agent/agentClient';
-import type { StepEvent } from '../agent/agentClient';
+import { BffError, runAgent, runAgentSession, toBffConfig } from '../agent/agentClient';
+import type { StepEvent, TaskPlan } from '../agent/agentClient';
 import { createApprovalGate, summarizeAction } from '../agent/approvalGate';
 import type { ApprovalDecision, ApprovalRequest, GrantScope } from '../agent/approvalGate';
 import { createMessageSender } from '../agent/toolExecutor';
@@ -79,7 +79,14 @@ export function useFreeFormController() {
   const settings = ref(settingsService.load().normalized);
   let abortController: AbortController | null = null;
 
-  const isBusy = computed(() => runState.value === 'running');
+  /** 计划阶段的输出。非空时 UI 展示计划等待用户确认。 */
+  const pendingPlan = ref<TaskPlan | null>(null);
+  /** 计划阶段的 reasoning（模型思考链），供 UI 展示。 */
+  const planReasoning = ref<string>('');
+  /** 计划阶段是否正在请求中。 */
+  const isPlanning = ref(false);
+
+  const isBusy = computed(() => runState.value === 'running' || isPlanning.value);
   const canSubmit = computed(() => instruction.value.trim().length > 0 && !isBusy.value);
 
   /**
@@ -140,7 +147,92 @@ export function useFreeFormController() {
     }
   }
 
-  /** 提交一条指令。 */
+  /**
+   * 计划阶段：先快照当前页面，再调 BFF 的 planning prompt 让模型评估并输出计划。
+   * 不执行任何写操作。计划返回后等用户确认。
+   */
+  async function requestPlan(): Promise<void> {
+    const text = instruction.value.trim();
+    if (!text || isBusy.value) return;
+
+    settings.value = settingsService.load().normalized;
+    if (!settings.value.advanced.bffBaseUrl || !settings.value.advanced.bffApiToken) {
+      runState.value = 'failed';
+      runError.value = { code: 'CONFIG_MISSING', message: '请先在设置中配置 BFF 地址与接入 token。' };
+      return;
+    }
+
+    await refreshPageContext();
+    isPlanning.value = true;
+    runError.value = null;
+    pendingPlan.value = null;
+    planReasoning.value = '';
+
+    try {
+      // 先快照当前页面，把快照作为 context 传给 planning prompt。
+      // 快照只读，不需要调试会话 -- 但需要 host 权限。
+      const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      const tabId = tab?.id;
+      if (typeof tabId !== 'number') {
+        isPlanning.value = false;
+        runState.value = 'failed';
+        runError.value = { code: 'ACTIVE_TAB_MISSING', message: '未找到活动标签页。' };
+        return;
+      }
+
+      let snapshot: unknown = null;
+      try {
+        snapshot = await send({ type: MessageType.ContentSnapshot, tabId });
+      } catch {
+        // 快照失败不阻断计划 -- 模型仍可基于指令评估，只是看不到当前页面。
+      }
+
+      const result = await runAgent(
+        toBffConfig(settings.value),
+        sessionId.value,
+        text,
+        snapshot ? { snapshot } : {},
+        'planning',
+        true, // skipTools: 计划阶段不让模型调工具
+      );
+
+      if (result.type !== 'final') {
+        // skipTools 时模型不应返回 tool_calls，但防御性处理。
+        isPlanning.value = false;
+        runState.value = 'failed';
+        runError.value = { code: 'EXECUTION_FAILED', message: '计划阶段意外收到工具调用请求。' };
+        return;
+      }
+
+      // result.output 是 planningProtocol 校验后的结构化对象。
+      pendingPlan.value = result.output as TaskPlan;
+      planReasoning.value = result.reasoning ?? '';
+      isPlanning.value = false;
+    } catch (error) {
+      isPlanning.value = false;
+      runState.value = 'failed';
+      const message = error instanceof BffError ? error.message : error instanceof Error ? error.message : String(error);
+      runError.value = { code: 'EXECUTION_FAILED', message };
+    }
+  }
+
+  /** 用户确认计划后进入执行阶段。 */
+  async function confirmPlan(): Promise<void> {
+    if (!pendingPlan.value) return;
+    pendingPlan.value = null;
+    // 执行阶段用原指令走 free-form prompt（带 tools）。
+    await submitInstruction();
+  }
+
+  /** 用户取消计划。 */
+  function rejectPlan(): void {
+    pendingPlan.value = null;
+    planReasoning.value = '';
+    runState.value = 'idle';
+    runError.value = null;
+  }
+
+  /** 提交一条指令，直接进入执行循环（不经过计划阶段）。 */
   async function submitInstruction(): Promise<void> {
     const text = instruction.value.trim();
     if (!text || isBusy.value) return;
@@ -281,10 +373,16 @@ export function useFreeFormController() {
     requestingPermission,
     requestHostPermission,
     pendingApproval,
+    pendingPlan,
+    planReasoning,
+    isPlanning,
     isBusy,
     canSubmit,
     approve,
     deny,
+    requestPlan,
+    confirmPlan,
+    rejectPlan,
     submitInstruction,
     stop,
     startNewSession,

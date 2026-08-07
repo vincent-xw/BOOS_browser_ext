@@ -27,10 +27,16 @@ const {
   requestingPermission,
   requestHostPermission,
   pendingApproval,
+  pendingPlan,
+  planReasoning,
+  isPlanning,
   isBusy,
   canSubmit,
   approve,
   deny,
+  requestPlan,
+  confirmPlan,
+  rejectPlan,
   submitInstruction,
   stop,
   startNewSession,
@@ -312,19 +318,68 @@ function stepSummary(output: unknown): { text: string; type: 'success' | 'warnin
         resize="none"
         :disabled="isBusy"
         placeholder="用一句话描述你想做什么，例如：在搜索框输入 Vue3 并搜索"
-        @keydown.enter.meta.prevent="submitInstruction"
+        @keydown.enter.meta.prevent="requestPlan"
       />
 
       <el-space wrap>
-        <el-button type="primary" :loading="isBusy" :disabled="!canSubmit" @click="submitInstruction">
-          执行指令
+        <el-button type="primary" :loading="isPlanning" :disabled="!canSubmit" @click="requestPlan">
+          {{ isPlanning ? '评估中...' : '评估' }}
         </el-button>
-        <el-button v-if="isBusy" type="danger" plain @click="stop">停止</el-button>
+        <el-button v-if="isBusy && !isPlanning" type="danger" plain @click="stop">停止</el-button>
         <el-button :icon="Star" :disabled="!canSaveSkill" plain size="small" @click="handleSaveSkill">
           保存为技能
         </el-button>
-        <el-text size="small" type="info">⌘ + Enter 快速执行</el-text>
+        <el-text size="small" type="info">⌘ + Enter 快速评估</el-text>
       </el-space>
+
+      <!-- 计划预览：模型评估完成后展示，等用户确认或取消 -->
+      <el-card v-if="pendingPlan" shadow="never" class="plan-card">
+        <template #header>
+          <div class="plan-header">
+            <el-text tag="b">任务评估</el-text>
+            <el-tag :type="pendingPlan.feasible ? 'success' : 'danger'" effect="plain" size="small">
+              {{ pendingPlan.feasible ? '可行' : '不可行' }}
+            </el-tag>
+            <el-tag v-if="pendingPlan.feasible" :type="pendingPlan.confidence === 'high' ? 'success' : pendingPlan.confidence === 'medium' ? 'warning' : 'danger'" effect="plain" size="small">
+              置信度：{{ pendingPlan.confidence === 'high' ? '高' : pendingPlan.confidence === 'medium' ? '中' : '低' }}
+            </el-tag>
+          </div>
+        </template>
+
+        <el-text size="small">{{ pendingPlan.summary }}</el-text>
+
+        <!-- 模型思考链（reasoning_content）：可折叠 -->
+        <el-collapse v-if="planReasoning" class="plan-reasoning">
+          <el-collapse-item title="模型思考过程">
+            <pre class="reasoning-text">{{ planReasoning }}</pre>
+          </el-collapse-item>
+        </el-collapse>
+
+        <!-- 步骤列表 -->
+        <div v-if="pendingPlan.steps.length" class="plan-steps">
+          <div v-for="(step, index) in pendingPlan.steps" :key="index" class="plan-step">
+            <el-text size="small" tag="b">{{ index + 1 }}.</el-text>
+            <el-text size="small">{{ step.action }}</el-text>
+            <el-tag size="small" :type="step.write ? 'warning' : 'info'" effect="plain">{{ step.tool }}</el-tag>
+            <el-text v-if="step.note" size="small" type="warning">{{ step.note }}</el-text>
+          </div>
+        </div>
+
+        <!-- 风险 -->
+        <el-alert v-if="pendingPlan.risks.length" type="warning" :closable="false" show-icon :title="`风险：${pendingPlan.risks.join('；')}`" />
+
+        <!-- 做不到的部分 -->
+        <el-alert v-if="pendingPlan.cannotDo.length" type="error" :closable="false" show-icon :title="`无法完成：${pendingPlan.cannotDo.join('；')}`" />
+
+        <!-- 确认/取消按钮 -->
+        <div v-if="pendingPlan.feasible" class="plan-actions">
+          <el-button type="primary" @click="confirmPlan">确认执行</el-button>
+          <el-button @click="rejectPlan">取消</el-button>
+        </div>
+        <div v-else class="plan-actions">
+          <el-button @click="rejectPlan">知道了</el-button>
+        </div>
+      </el-card>
 
       <el-alert
         v-if="runError && runState === 'failed'"
@@ -524,5 +579,51 @@ function stepSummary(output: unknown): { text: string; type: 'success' | 'warnin
   padding: 8px 10px;
   background: var(--el-color-info-light-9);
   border-radius: 4px;
+}
+
+.plan-card {
+  border: 1px solid var(--el-color-primary-light-5);
+}
+
+.plan-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.plan-reasoning {
+  margin: 8px 0;
+}
+
+.reasoning-text {
+  margin: 0;
+  padding: 8px;
+  background: var(--el-fill-color-lighter);
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--el-text-color-secondary);
+}
+
+.plan-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 8px 0;
+}
+
+.plan-step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.plan-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
 }
 </style>

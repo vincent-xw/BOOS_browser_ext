@@ -33,10 +33,20 @@ export interface PendingToolCall {
   input: unknown;
 }
 
-/** BFF 运行结果。复数形态：一轮可能包含多个调用。 */
+/** BFF 运行结果。复数形态：一轮可能包含多个调用。reasoning 是模型思考链。 */
 export type AgentRunResult =
-  | { type: 'final'; output: unknown }
+  | { type: 'final'; output: unknown; reasoning?: string }
   | { type: 'pending_tool_calls'; calls: PendingToolCall[] };
+
+/** 计划阶段的结构化输出。与 BFF 侧 planningProtocol 对应。 */
+export interface TaskPlan {
+  feasible: boolean;
+  confidence: 'high' | 'medium' | 'low';
+  summary: string;
+  steps: Array<{ action: string; tool: string; write: boolean; note?: string }>;
+  risks: string[];
+  cannotDo: string[];
+}
 
 /** BFF 错误响应。只含这三项，不回显 Prompt 正文或密钥。 */
 export interface BffErrorPayload {
@@ -94,18 +104,20 @@ async function callBff<T>(config: BffConfig, path: string, body: unknown): Promi
   }
 }
 
-/** 发起 agent 运行。promptName 用于选择 BFF 侧已注册的提示词。 */
+/** 发起 agent 运行。promptName 用于选择 BFF 侧已注册的提示词。skipTools 时不发 tools 字段。 */
 export function runAgent(
   config: BffConfig,
   sessionId: string,
   input: string,
   context: Record<string, unknown> = {},
   promptName?: string,
+  skipTools?: boolean,
 ): Promise<AgentRunResult> {
   return callBff<AgentRunResult>(config, `/v1/agent/sessions/${encodeURIComponent(sessionId)}/run`, {
     input,
     context,
     ...(promptName ? { promptName } : {}),
+    ...(skipTools ? { skipTools: true } : {}),
   });
 }
 
