@@ -180,6 +180,16 @@ function handleRemoveFile(id: string) {
   refreshGeneratedFiles();
 }
 
+/** 截图预览状态。 */
+const screenshotPreviewVisible = ref(false);
+const previewingScreenshot = ref<GeneratedFile | null>(null);
+
+/** 点击缩略图预览大图。 */
+function previewScreenshot(file: GeneratedFile) {
+  previewingScreenshot.value = file;
+  screenshotPreviewVisible.value = true;
+}
+
 /**
  * 把长 URL 压缩成「主域名 + 关键 path」形式，避免长 URL 挤崩布局。
  * 例如 https://example.com/a/b/c/d?x=1 -> example.com/a/b/c/d
@@ -476,18 +486,47 @@ function stepSummary(output: unknown): { text: string; type: 'success' | 'warnin
         </div>
       </el-card>
 
-      <!-- agent 生成的文件：每个文件一个下载按钮 -->
+      <!-- agent 生成的文件和截图 -->
       <div v-if="generatedFiles.length" class="generated-files">
-        <div v-for="file in generatedFiles" :key="file.id" class="file-card">
-          <el-icon class="file-icon"><Download /></el-icon>
-          <div class="file-info">
-            <el-text size="small" tag="b">{{ file.filename }}</el-text>
-            <el-text size="small" type="info">{{ (file.size / 1024).toFixed(1) }}KB · {{ file.format.toUpperCase() }}</el-text>
-          </div>
-          <el-button type="primary" size="small" plain @click="downloadFile(file)">下载</el-button>
-          <el-button :icon="Delete" link size="small" @click="handleRemoveFile(file.id)" />
+        <div v-for="file in generatedFiles" :key="file.id" :class="file.isImage ? 'screenshot-card' : 'file-card'">
+          <!-- 截图：缩略图 + 查看大图 + 下载 -->
+          <template v-if="file.isImage">
+            <img
+              :src="file.url"
+              class="screenshot-thumb"
+              :alt="file.filename"
+              @click="previewScreenshot(file)"
+            />
+            <div class="screenshot-info">
+              <el-text size="small" tag="b">{{ file.filename }}</el-text>
+              <el-text size="small" type="info">{{ file.width }}x{{ file.height }} · {{ (file.size / 1024).toFixed(0) }}KB</el-text>
+            </div>
+            <el-button type="primary" size="small" plain @click="downloadFile(file)">下载</el-button>
+            <el-button :icon="Delete" link size="small" @click="handleRemoveFile(file.id)" />
+          </template>
+          <!-- 普通文件：下载按钮 -->
+          <template v-else>
+            <el-icon class="file-icon"><Download /></el-icon>
+            <div class="file-info">
+              <el-text size="small" tag="b">{{ file.filename }}</el-text>
+              <el-text size="small" type="info">{{ (file.size / 1024).toFixed(1) }}KB · {{ file.format.toUpperCase() }}</el-text>
+            </div>
+            <el-button type="primary" size="small" plain @click="downloadFile(file)">下载</el-button>
+            <el-button :icon="Delete" link size="small" @click="handleRemoveFile(file.id)" />
+          </template>
         </div>
       </div>
+
+      <!-- 截图大图预览 -->
+      <el-dialog
+        v-model="screenshotPreviewVisible"
+        title="截图预览"
+        width="95%"
+        :close-on-click-modal="true"
+        append-to-body
+      >
+        <img v-if="previewingScreenshot" :src="previewingScreenshot.url" style="width: 100%; max-height: 70vh; object-fit: contain" />
+      </el-dialog>
 
       <el-alert
         v-if="runError && runState === 'failed'"
@@ -867,6 +906,37 @@ function stepSummary(output: unknown): { text: string; type: 'success' | 'warnin
 }
 
 .file-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.screenshot-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--el-color-success-light-9);
+  border: 1px solid var(--el-color-success-light-5);
+  border-radius: 6px;
+}
+
+.screenshot-thumb {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 4px;
+  cursor: pointer;
+  flex-shrink: 0;
+  border: 1px solid var(--el-border-color);
+}
+
+.screenshot-thumb:hover {
+  opacity: 0.8;
+}
+
+.screenshot-info {
   flex: 1;
   display: flex;
   flex-direction: column;

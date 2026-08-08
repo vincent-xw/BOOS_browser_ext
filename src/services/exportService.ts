@@ -11,6 +11,8 @@ import * as XLSX from 'xlsx';
  */
 
 export type SaveFileFormat = 'txt' | 'csv' | 'xlsx' | 'json';
+export type ScreenshotFormat = 'png' | 'jpeg';
+export type GeneratedFormat = SaveFileFormat | ScreenshotFormat;
 
 export interface GeneratedFile {
   /** 唯一标识，用于 UI 管理。 */
@@ -21,10 +23,16 @@ export interface GeneratedFile {
   size: number;
   /** 创建时间。 */
   createdAt: string;
-  /** Blob URL，用户点击下载时用。 */
+  /** Blob URL 或 data URL，用户点击下载/查看时用。 */
   url: string;
   /** 文件格式。 */
-  format: SaveFileFormat;
+  format: GeneratedFormat;
+  /** 是否是图片（截图）。图片在 UI 里展示缩略图而非下载按钮。 */
+  isImage: boolean;
+  /** 图片宽度（仅截图有）。 */
+  width?: number;
+  /** 图片高度（仅截图有）。 */
+  height?: number;
 }
 
 /** 内存中保存已生成的文件，供 UI 展示下载按钮。 */
@@ -92,13 +100,43 @@ export function generateFile(filename: string, format: SaveFileFormat, content: 
     createdAt: new Date().toISOString(),
     url,
     format,
+    isImage: false,
   };
   generatedFiles.unshift(file);
 
   // 最多保留 20 个文件，避免内存泄漏。旧的 URL 释放掉。
   while (generatedFiles.length > 20) {
     const old = generatedFiles.pop();
-    if (old) URL.revokeObjectURL(old.url);
+    if (old && !old.isImage) URL.revokeObjectURL(old.url);
+    // 截图用的是 dataUrl，不需要 revoke
+  }
+
+  return file;
+}
+
+/**
+ * 存储截图，供 UI 展示。
+ * 截图的 url 是 dataUrl（base64），不需要创建 Blob。
+ */
+export function generateScreenshot(dataUrl: string, format: ScreenshotFormat, width: number, height: number): GeneratedFile {
+  // 估算大小：base64 字符串长度 * 0.75 ≈ 原始字节数。
+  const size = Math.floor(dataUrl.length * 0.75);
+  const file: GeneratedFile = {
+    id: `screenshot-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+    filename: `截图-${generatedFiles.filter((f) => f.isImage).length + 1}.${format}`,
+    size,
+    createdAt: new Date().toISOString(),
+    url: dataUrl,
+    format,
+    isImage: true,
+    width,
+    height,
+  };
+  generatedFiles.unshift(file);
+
+  while (generatedFiles.length > 20) {
+    const old = generatedFiles.pop();
+    if (old && !old.isImage) URL.revokeObjectURL(old.url);
   }
 
   return file;

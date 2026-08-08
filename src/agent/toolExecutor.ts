@@ -241,12 +241,22 @@ export async function executeTool(
         // 浏览器原生返回。用于点击链接触发非预期导航后回到原页面。
         return await send({ type: MessageType.CdpGoBack, tabId });
 
-      case 'browser_screenshot':
-        return await send({
+      case 'browser_screenshot': {
+        const shot = await send<{ dataUrl: string; width: number; height: number }>({
           type: MessageType.CdpScreenshot,
           tabId,
           ...(input.format === 'jpeg' || input.format === 'png' ? { format: input.format } : {}),
         });
+        // 截图存入 generatedFiles，UI 展示缩略图供用户查看和下载。
+        const { generateScreenshot } = await import('../services/exportService');
+        const format = (input.format === 'jpeg' ? 'jpeg' : 'png') as 'png' | 'jpeg';
+        const screenshot = generateScreenshot(shot.dataUrl, format, shot.width, shot.height);
+        return {
+          ...shot,
+          screenshotId: screenshot.id,
+          message: `截图已保存（${shot.width}x${shot.height}），用户可在对话区域查看和下载。`,
+        };
+      }
 
       case 'browser_save_file': {
         // agent 产出数据生成文件。这是只读工具（不改页面），不需要 CDP。
