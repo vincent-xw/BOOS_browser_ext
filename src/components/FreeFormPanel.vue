@@ -300,7 +300,7 @@ function stepSummary(output: unknown): { text: string; type: 'success' | 'warnin
       </div>
     </template>
 
-    <el-space direction="vertical" fill :size="12" style="width: 100%">
+    <el-space direction="vertical" fill :size="10" style="width: 100%; flex: 1; min-height: 0; overflow: hidden">
       <!-- host 权限缺失：没有它 content script 注入与 CDP 都失败，任务会在中途断掉，必须先授权 -->
       <el-alert
         v-if="currentUrl && !hostPermissionOk"
@@ -601,8 +601,9 @@ function stepSummary(output: unknown): { text: string; type: 'success' | 'warnin
 .conversation {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  max-height: 320px;
+  gap: 8px;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding-right: 4px;
 }
@@ -611,6 +612,8 @@ function stepSummary(output: unknown): { text: string; type: 'success' | 'warnin
   padding: 8px 10px;
   border-radius: 6px;
   background: var(--el-fill-color-lighter);
+  min-width: 0;
+  overflow: hidden;
 }
 
 .turn-header {
@@ -641,6 +644,15 @@ function stepSummary(output: unknown): { text: string; type: 'success' | 'warnin
   word-break: break-word;
   font-size: 13px;
   margin-top: 2px;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+/* Markdown 渲染样式 */
+.markdown-body {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 /* Markdown 渲染样式 */
@@ -683,6 +695,7 @@ function stepSummary(output: unknown): { text: string; type: 'success' | 'warnin
   padding: 8px;
   border-radius: 4px;
   overflow-x: auto;
+  max-width: 100%;
   margin: 4px 0;
 }
 
@@ -707,6 +720,8 @@ function stepSummary(output: unknown): { text: string; type: 'success' | 'warnin
   border-collapse: collapse;
   width: 100%;
   margin: 4px 0;
+  display: block;
+  overflow-x: auto;
 }
 
 .markdown-body :deep(th),
@@ -738,6 +753,7 @@ function stepSummary(output: unknown): { text: string; type: 'success' | 'warnin
   padding: 8px 10px;
   background: var(--el-color-info-light-9);
   border-radius: 4px;
+  flex-shrink: 0;
 }
 
 .plan-card {
