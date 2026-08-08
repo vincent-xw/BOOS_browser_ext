@@ -1,0 +1,27 @@
+src/components/FreeFormPanel.vue
+  s_a05627423297e0::t_8362c06a99a06f 647-655
+  s_a05627423297e0::t_84be17955e48b8 756
+  s_a05627423297e0::t_aca7ceafc20660 303
+  s_a05627423297e0::t_fcc3be78b46a12 615-616
+  s_a05627423297e0::t_9d916d76ab95ce 698
+  s_a05627423297e0::t_a7465f222c6e88 723-724
+  s_a05627423297e0::t_6a954fba4ac566 604-606
+src/components/ExtensionAppShell.vue
+  s_a05627423297e0::t_e588192f48de73 46-50,55-66,73,77,79,88,93,95-96,103-104,108-109
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "c276280943ae35d1947d7fb6946d058a61e1af27",
+  "prompts": {},
+  "sessions": {
+    "s_a05627423297e0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ef888fdd-3960-4dd1-a9e4-276b31912f28",
+        "model": "glm-5.2"
+      },
+      "human_author": "xuewen.jia <xuewen.jia@ly.com>"
+    }
+  }
+}
