@@ -30,6 +30,7 @@ export const TOOL_ALLOWLIST = [
   'browser_go_back',
   'browser_verify',
   'browser_screenshot',
+  'browser_save_file',
 ] as const;
 
 /** 只读工具：不改变页面状态，审批时可自动放行。 */
@@ -39,6 +40,7 @@ export const READ_ONLY_TOOLS: readonly ToolName[] = [
   'browser_locate_element',
   'browser_verify',
   'browser_screenshot',
+  'browser_save_file',
 ];
 
 export type ToolName = (typeof TOOL_ALLOWLIST)[number];
@@ -245,6 +247,26 @@ export async function executeTool(
           tabId,
           ...(input.format === 'jpeg' || input.format === 'png' ? { format: input.format } : {}),
         });
+
+      case 'browser_save_file': {
+        // agent 产出数据生成文件。这是只读工具（不改页面），不需要 CDP。
+        // 文件在扩展内存里生成，UI 展示下载按钮。
+        const filename = typeof input.filename === 'string' ? input.filename : '导出数据';
+        const format = input.format;
+        const content = typeof input.content === 'string' ? input.content : JSON.stringify(input.content ?? '');
+        const validFormats = ['txt', 'csv', 'xlsx', 'json'] as const;
+        if (!validFormats.includes(format as (typeof validFormats)[number])) {
+          return invalid(`不支持的格式：${String(format)}。支持 txt / csv / xlsx / json。`);
+        }
+        const { generateFile } = await import('../services/exportService');
+        const file = generateFile(filename, format as 'txt' | 'csv' | 'xlsx' | 'json', content);
+        return {
+          ok: true,
+          message: `已生成文件 ${file.filename}（${(file.size / 1024).toFixed(1)}KB）。用户可在对话区域点击下载。`,
+          fileId: file.id,
+          filename: file.filename,
+        };
+      }
     }
   } catch (error) {
     return {

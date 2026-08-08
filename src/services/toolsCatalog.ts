@@ -80,4 +80,10 @@ export const TOOLS_CATALOG: readonly ToolDescription[] = [
     description: '浏览器返回。当点击链接把你带到非预期页面（例如下载跳到外部站点）时，用它回到原页面继续任务。这是写操作，需要批准。',
     category: 'write',
   },
+  {
+    name: 'browser_save_file',
+    title: '生成文件',
+    description: '把收集到的数据生成 txt/csv/xlsx/json 文件。文件生成后会在对话区域出现下载按钮，用户点击即可下载。这是只读操作，不需要审批。适合汇总数据导出场景。',
+    category: 'read',
+  },
 ];

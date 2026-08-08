@@ -1,38 +1,56 @@
 import * as XLSX from 'xlsx';
 
 /**
- * 文件导出服务。
+ * 文件生成服务。
  *
- * 在扩展侧（浏览器内）生成 txt / csv / xlsx，通过 chrome.downloads 触发下载。
- * 不走 BFF -- 文件内容来自 agent 的对话结果，扩展侧已有。
+ * agent 调用 browser_save_file 工具时，把数据交给这里生成文件。
+ * 文件存在内存里（Blob URL），扩展在对话区域展示一个下载按钮，用户点击下载。
+ *
+ * 与导出对话记录的 exportFile 不同：这个是 agent 在执行过程中产出的结构化数据，
+ * 不是对话日志。
  */
 
-export type ExportFormat = 'txt' | 'csv' | 'xlsx';
+export type SaveFileFormat = 'txt' | 'csv' | 'xlsx' | 'json';
 
-export interface ExportOptions {
-  /** 文件名（不含扩展名）。 */
+export interface GeneratedFile {
+  /** 唯一标识，用于 UI 管理。 */
+  id: string;
+  /** 文件名（含扩展名）。 */
   filename: string;
-  /** 导出格式。 */
-  format: ExportFormat;
-  /** 文本内容（txt 直接用；csv/xlsx 按「每行一条记录」处理）。 */
-  content: string;
+  /** 文件大小（字节）。 */
+  size: number;
+  /** 创建时间。 */
+  createdAt: string;
+  /** Blob URL，用户点击下载时用。 */
+  url: string;
+  /** 文件格式。 */
+  format: SaveFileFormat;
+}
+
+/** 内存中保存已生成的文件，供 UI 展示下载按钮。 */
+const generatedFiles: GeneratedFile[] = [];
+
+/** 获取所有已生成的文件。 */
+export function getGeneratedFiles(): GeneratedFile[] {
+  return [...generatedFiles];
 }
 
 /**
- * 生成并下载文件。
+ * 从 agent 传入的数据生成文件，返回文件信息。
  *
- * txt：直接写文本。
- * csv：把文本按行拆成单列 CSV。
- * xlsx：把文本按行拆成单列，用 SheetJS 生成 .xlsx。
- *
- * 如果 content 是 JSON 数组，会尝试按对象的 keys 做表头、每条记录做一行。
+ * @param filename 文件名（不含扩展名）
+ * @param format 格式
+ * @param content 文本内容或 JSON 数据
+ *   - txt：直接写入文本
+ *   - json：JSON.stringify 后写入
+ *   - csv：JSON 数组按字段做表头，纯文本按行做单列
+ *   - xlsx：JSON 数组按字段做表头，纯文本按行做单列
  */
-export async function exportFile(options: ExportOptions): Promise<{ ok: boolean; message: string }> {
-  const { filename, format, content } = options;
+export function generateFile(filename: string, format: SaveFileFormat, content: string): GeneratedFile {
   let blob: Blob;
-  let ext: string;
+  const ext = format;
 
-  // 尝试解析为结构化数据（JSON 数组），否则按纯文本处理。
+  // 尝试解析为 JSON 数组（csv/xlsx 会按结构化处理）。
   let jsonData: unknown[] | null = null;
   try {
     const parsed = JSON.parse(content);
@@ -41,41 +59,57 @@ export async function exportFile(options: ExportOptions): Promise<{ ok: boolean;
     // 不是 JSON，按纯文本处理。
   }
 
-  if (format === 'txt') {
+  if (format === 'json') {
+    // json 格式：把 content 解析后美化输出，或直接写入。
+    let jsonStr: string;
+    try {
+      jsonStr = JSON.stringify(JSON.parse(content), null, 2);
+    } catch {
+      jsonStr = content;
+    }
+    blob = new Blob([jsonStr], { type: 'application/json;charset=utf-8' });
+  } else if (format === 'txt') {
     blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-    ext = 'txt';
   } else if (format === 'csv') {
     const csv = jsonData ? jsonToCsv(jsonData) : textToCsv(content);
-    // BOM 让 Excel 正确识别 UTF-8。
     blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
-    ext = 'csv';
   } else {
     // xlsx
-    const ws = jsonData ? jsonToSheet(jsonData) : textToSheet(content);
+    const ws = jsonData ? XLSX.utils.json_to_sheet(jsonData) : XLSX.utils.json_to_sheet(
+      content.split('\n').filter((line) => line.trim()).map((line) => ({ 内容: line })),
+    );
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, '结果');
+    XLSX.utils.book_append_sheet(wb, ws, '数据');
     const arrayBuffer = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
     blob = new Blob([arrayBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-    ext = 'xlsx';
   }
 
-  // 用 <a download> 触发下载，不依赖 chrome.downloads 权限。
-  // 在 sidepanel 上下文里这是最可靠的方式。
   const url = URL.createObjectURL(blob);
-  try {
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${filename}.${ext}`;
-    a.style.display = 'none';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    return { ok: true, message: `已导出 ${filename}.${ext}` };
-  } catch (error) {
-    return { ok: false, message: `导出失败：${error instanceof Error ? error.message : String(error)}` };
-  } finally {
-    URL.revokeObjectURL(url);
+  const file: GeneratedFile = {
+    id: `file-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+    filename: `${filename}.${ext}`,
+    size: blob.size,
+    createdAt: new Date().toISOString(),
+    url,
+    format,
+  };
+  generatedFiles.unshift(file);
+
+  // 最多保留 20 个文件，避免内存泄漏。旧的 URL 释放掉。
+  while (generatedFiles.length > 20) {
+    const old = generatedFiles.pop();
+    if (old) URL.revokeObjectURL(old.url);
   }
+
+  return file;
+}
+
+/** 删除一个已生成的文件。 */
+export function removeGeneratedFile(id: string): void {
+  const index = generatedFiles.findIndex((file) => file.id === id);
+  if (index < 0) return;
+  const [removed] = generatedFiles.splice(index, 1);
+  URL.revokeObjectURL(removed.url);
 }
 
 /** JSON 数组转 CSV 字符串。 */
@@ -95,22 +129,29 @@ function textToCsv(text: string): string {
   return text.split('\n').map((line) => escapeCsvValue(line)).join('\n');
 }
 
-/** JSON 数组转 SheetJS worksheet。 */
-function jsonToSheet(data: unknown[]): XLSX.WorkSheet {
-  return XLSX.utils.json_to_sheet(data);
-}
-
-/** 纯文本转 SheetJS worksheet（每行一条记录，列名「内容」）。 */
-function textToSheet(text: string): XLSX.WorkSheet {
-  const rows = text.split('\n').filter((line) => line.trim()).map((line) => ({ 内容: line }));
-  return XLSX.utils.json_to_sheet(rows);
-}
-
-/** CSV 值转义：含逗号、引号、换行的用双引号包裹，内部引号双写。 */
+/** CSV 值转义。 */
 function escapeCsvValue(value: unknown): string {
   const str = value === null || value === undefined ? '' : String(value);
   if (/[",\n]/.test(str)) {
     return `"${str.replace(/"/g, '""')}"`;
   }
   return str;
+}
+
+/**
+ * 导出对话记录（旧功能，保留）。
+ * 与 generateFile 的区别：这个是把整个对话记录导出，不是 agent 产出的数据。
+ */
+export async function exportFile(options: { filename: string; format: 'txt' | 'csv' | 'xlsx'; content: string }): Promise<{ ok: boolean; message: string }> {
+  const { filename, format, content } = options;
+  const file = generateFile(filename, format, content);
+  // 立即触发下载（旧行为）。
+  const a = document.createElement('a');
+  a.href = file.url;
+  a.download = file.filename;
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  return { ok: true, message: `已导出 ${file.filename}` };
 }

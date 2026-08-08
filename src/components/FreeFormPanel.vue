@@ -7,8 +7,8 @@ import type { GrantScope } from '../agent/approvalGate';
 import { TOOLS_CATALOG } from '../services/toolsCatalog';
 import { useSkillController } from '../composables/useSkillController';
 import type { Skill } from '../services/skillStore';
-import { exportFile } from '../services/exportService';
-import type { ExportFormat } from '../services/exportService';
+import { exportFile, getGeneratedFiles, removeGeneratedFile } from '../services/exportService';
+import type { GeneratedFile } from '../services/exportService';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 
@@ -125,7 +125,7 @@ async function handleSaveSkill() {
 const canSaveSkill = computed(() => turns.value.length > 0 && !isBusy.value);
 
 /** 导出对话内容。把所有 agent 回复拼接为文本，按选定格式导出。 */
-async function handleExport(format: ExportFormat) {
+async function handleExport(format: 'txt' | 'csv' | 'xlsx') {
   // 把对话内容拼接：每条轮次带角色标签，agent 的步骤摘要也包含进去。
   const lines: string[] = [];
   for (const turn of turns.value) {
@@ -150,6 +150,34 @@ async function handleExport(format: ExportFormat) {
 
 function newDatetoISOString(): string {
   return new Date().toISOString();
+}
+
+/** agent 生成的文件列表。每步执行后刷新，展示下载按钮。 */
+const generatedFiles = ref<GeneratedFile[]>([]);
+
+/** 刷新生成的文件列表（从 exportService 内存中取）。 */
+function refreshGeneratedFiles() {
+  generatedFiles.value = getGeneratedFiles();
+}
+
+// 每步执行后检查是否有新文件生成（browser_save_file 工具会产生）。
+watch(currentSteps, () => { refreshGeneratedFiles(); }, { deep: true });
+
+/** 下载已生成的文件。 */
+function downloadFile(file: GeneratedFile) {
+  const a = document.createElement('a');
+  a.href = file.url;
+  a.download = file.filename;
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
+/** 删除已生成的文件。 */
+function handleRemoveFile(id: string) {
+  removeGeneratedFile(id);
+  refreshGeneratedFiles();
 }
 
 /**
@@ -447,6 +475,19 @@ function stepSummary(output: unknown): { text: string; type: 'success' | 'warnin
           <el-button @click="rejectPlan">知道了</el-button>
         </div>
       </el-card>
+
+      <!-- agent 生成的文件：每个文件一个下载按钮 -->
+      <div v-if="generatedFiles.length" class="generated-files">
+        <div v-for="file in generatedFiles" :key="file.id" class="file-card">
+          <el-icon class="file-icon"><Download /></el-icon>
+          <div class="file-info">
+            <el-text size="small" tag="b">{{ file.filename }}</el-text>
+            <el-text size="small" type="info">{{ (file.size / 1024).toFixed(1) }}KB · {{ file.format.toUpperCase() }}</el-text>
+          </div>
+          <el-button type="primary" size="small" plain @click="downloadFile(file)">下载</el-button>
+          <el-button :icon="Delete" link size="small" @click="handleRemoveFile(file.id)" />
+        </div>
+      </div>
 
       <el-alert
         v-if="runError && runState === 'failed'"
@@ -800,5 +841,35 @@ function stepSummary(output: unknown): { text: string; type: 'success' | 'warnin
   display: flex;
   gap: 10px;
   margin-top: 12px;
+}
+
+.generated-files {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.file-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--el-color-success-light-9);
+  border: 1px solid var(--el-color-success-light-5);
+  border-radius: 6px;
+}
+
+.file-icon {
+  color: var(--el-color-success);
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.file-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 </style>

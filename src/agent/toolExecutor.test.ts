@@ -27,6 +27,7 @@ describe('白名单', () => {
       'browser_go_back',
       'browser_verify',
       'browser_screenshot',
+      'browser_save_file',
     ]);
   });
 
