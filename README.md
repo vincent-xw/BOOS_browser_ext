@@ -1,19 +1,23 @@
 # BOOS Browser Extension
 
-基于 `WXT + Vue 3 + Element Plus` 的 Chrome 扩展，用于在 BOSS 直聘候选人列表页面执行“读取简历 → LLM 判断 → 自动收藏”的半自动流程。
+基于 `WXT + Vue 3 + Element Plus` 的 Chrome 扩展：在允许的页面上用自然语言下指令，由本地 BFF 驱动的 agent 自行规划并执行网页操作。
 
 ## 当前能力
 
-- 目标站点检测：检测当前标签页域名是否匹配（默认 `www.zhipin.com`）
-- 设置中心：
-	- 基础设置（域名、候选人列表/简历/收藏按钮选择器）
-	- 高级设置（LLM API Endpoint、API Key、模型、超时）
-	- 全部持久化到 `localStorage`
-- 主界面重构：右上角设置入口 + Prompt 输入 + 流程执行按钮
-- 自动化编排：候选人列表读取、详情打开、简历抓取、收藏点击
-- LLM 决策：将 `Prompt + 候选人摘要 + 简历文本` 发送到模型并解析收藏决策
-- 反检测节流：每位候选人处理后随机等待 1-5 秒
-- 失败可观测：站点不匹配、读取失败、LLM 失败等均有可读反馈
+**自由指令（调试期主用）**
+
+- 在允许的任意页面上，用一句自然语言下指令，agent 自己规划并执行
+- 页面元素发现：`browser.snapshot` 列出可交互元素与 `ref` 编号，模型按 ref 指定目标而不猜选择器
+- 多轮对话：同一会话内保持上下文，可以说「点第三条结果」「回到上一页」
+- 逐步审批：读操作自动放行，写操作弹确认，可选「本次 / 本会话 / 该域名永久」三档授权
+- 写操作双闸门：URL 白名单 + 逐步审批，两者默认都偏严
+
+**公共基础**
+
+- 页面交互：经 `chrome.debugger` + CDP 下发真实点击、中文输入与按键
+- 结果验证：弹窗出现、DOM 变化、输入框内容、按钮可用性、网络请求是否成功返回
+- 不持有模型凭据：Endpoint、模型名与 API Key 全部由 BFF 持有
+- 失败可观测：定位失败、验证不通过、白名单拒绝、调试连接断开等均有可读反馈
 
 ## 开发命令（pnpm）
 
@@ -25,32 +29,75 @@
 
 > 本项目约定使用 `pnpm`，不要使用 npm/yarn。
 
+## agent-kit 依赖
+
+agent 能力来自同级仓库 `agent-kit`。开发期通过本地路径依赖，便于两侧改动即时联调：
+
+```json
+"@agent-kit/core": "file:../agent-kit/packages/core"
+```
+
+生产期改为 npm 版本号依赖。切换步骤：
+
+1. 在 `agent-kit` 仓库执行 `pnpm build`，确认 `packages/*/dist` 产物齐全。
+2. 在各包目录执行 `pnpm publish`（包已解除 `private`，并带 `publishConfig.access: public`）。
+3. 本项目把 `file:../agent-kit/packages/core` 换成对应版本号，例如 `"@agent-kit/core": "^0.1.0"`。
+4. `pnpm install && pnpm run typecheck`。
+
+切换前后 **无需改动任何 `import` 语句** —— 两种方式解析到的都是 `@agent-kit/core` 这个包名。
+
 ## 配置说明
 
-在 popup 右上角点击“设置”可配置：
+在侧边栏右上角点击「设置」可配置：
 
-### 基础设置
+### BFF 接入
 
-- `targetDomain`：允许执行自动化流程的域名
-- `candidateListItemSelector`：候选人列表项选择器
-- `candidateNameSelector`：候选人姓名选择器
-- `resumeContainerSelector`：在线简历容器选择器
-- `favoriteButtonSelector`：收藏按钮选择器
+- `bffBaseUrl`：BFF 服务地址（默认 `http://localhost:8787`）
+- `bffApiToken`：BFF 接入 token，**不是** LLM API Key，需与 BFF 的 `BFF_API_TOKEN` 一致
+- `bffRequestTimeoutMs`：BFF 请求超时
 
-### 高级设置
+设置面板提供「检查 BFF 连通性」按钮，失败时区分「地址不可达」与「凭据无效」。
 
-- `llmApiEndpoint`：大模型接口地址（建议兼容 Chat Completions）
-- `llmApiKey`：调用密钥（保存在 `localStorage`）
-- `llmModel`：模型名
-- `llmRequestTimeoutMs`：模型请求超时
-- `perCandidateTimeoutMs`：单候选人处理超时
+> 模型 Endpoint、模型名与 API Key **不在扩展中配置** —— 它们只存在于 BFF 进程环境。
+
+### 允许操作的页面
+
+在设置的「允许操作的页面」中添加域名。添加时浏览器会申请该站点的访问权限；
+未添加的页面只能读取/快照，写操作（点击、输入等）会被拒绝。
+
+## BFF 服务
+
+agent 能力需要一个本地 BFF 进程。它持有模型配置并注册远端工具，扩展只作为 Tool Host。
+
+首次准备：
+
+```bash
+cd ../agent-kit && pnpm install && cp examples/browser-extension-bff/.env.example examples/browser-extension-bff/.env
+```
+
+填好 `.env`（需要 `AGENT_KIT_MASTER_KEY`、`BFF_API_TOKEN`、`LLM_API_KEY`、`LLM_MODEL`）后启动：
+
+```bash
+cd ../agent-kit && pnpm dev:bff
+```
+
+`.env` 由 Node 原生 `--env-file` 加载，无需手动 source。`dev:bff` 带热重载（改 prompt 或
+工具定义后自动重编重启），`start:bff` 是一次性启动。两者都会自动先编译依赖的 workspace 包。
+默认监听 `http://localhost:8787`。
+
+完整的环境变量清单与协议说明见 [agent-kit 的 BFF README](../agent-kit/examples/browser-extension-bff/README.md)。
+
+## 权限说明
+
+- `debugger`：页面写操作经 `chrome.debugger` + CDP 下发真实输入事件。
+  DOM 合成事件的 `isTrusted` 为 `false`，无法触发目标站点依赖的真实焦点与 user activation。
+  **代价**：任务运行时标签页顶部会出现「正在被调试」提示条。手动关闭它、或为该标签页
+  打开开发者工具，都会中止当前任务 —— 这是浏览器的固有行为，无法消除。
+- `webNavigation`：枚举 frame 以做跨 frame 聚合定位，避免退化为只读主 frame。
 
 ## 验证记录
 
 - `pnpm run typecheck` ✅
+- `pnpm test` ✅
 - `pnpm run build` ✅
 
-## 说明与后续
-
-- 当前默认选择器是通用兜底值，建议在真实 BOSS 页面根据 DOM 微调。
-- API Key 当前存储在 `localStorage`，请在可信环境使用；后续可迁移到更安全的存储方案。

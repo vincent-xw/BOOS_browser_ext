@@ -1,62 +1,157 @@
 import * as XLSX from 'xlsx';
-import type { CandidateSummary } from '../types/page-io';
-import type { CandidateDbResult } from './candidateResultDb';
-import type { ExportMode } from '../types/settings';
 
-export interface ExportRow {
-  序号: number;
-  姓名: string;
-  页面摘要: string;
-  AI结果: string;
-  推荐理由: string;
-  处理时间: string;
-  使用模型: string;
+/**
+ * 文件生成服务。
+ *
+ * agent 调用 browser_save_file 工具时，把数据交给这里生成文件。
+ * 文件存在内存里（Blob URL），扩展在对话区域展示一个下载按钮，用户点击下载。
+ *
+ * 与导出对话记录的 exportFile 不同：这个是 agent 在执行过程中产出的结构化数据，
+ * 不是对话日志。
+ */
+
+export type SaveFileFormat = 'txt' | 'csv' | 'xlsx' | 'json';
+
+export interface GeneratedFile {
+  /** 唯一标识，用于 UI 管理。 */
+  id: string;
+  /** 文件名（含扩展名）。 */
+  filename: string;
+  /** 文件大小（字节）。 */
+  size: number;
+  /** 创建时间。 */
+  createdAt: string;
+  /** Blob URL，用户点击下载时用。 */
+  url: string;
+  /** 文件格式。 */
+  format: SaveFileFormat;
 }
 
-export function exportCandidatesXlsx(
-  candidates: CandidateSummary[],
-  resultsMap: Map<string, CandidateDbResult>,
-  mode: ExportMode,
-  keyFn: (name: string, previewText: string) => string,
-): void {
-  const rows: ExportRow[] = [];
+/** 内存中保存已生成的文件，供 UI 展示下载按钮。 */
+const generatedFiles: GeneratedFile[] = [];
 
-  for (const c of candidates) {
-    const key = keyFn(c.name, c.previewText);
-    const result = resultsMap.get(key);
+/** 获取所有已生成的文件。 */
+export function getGeneratedFiles(): GeneratedFile[] {
+  return [...generatedFiles];
+}
 
-    if (mode === 'processed' && !result) continue;
+/**
+ * 从 agent 传入的数据生成文件，返回文件信息。
+ *
+ * @param filename 文件名（不含扩展名）
+ * @param format 格式
+ * @param content 文本内容或 JSON 数据
+ *   - txt：直接写入文本
+ *   - json：JSON.stringify 后写入
+ *   - csv：JSON 数组按字段做表头，纯文本按行做单列
+ *   - xlsx：JSON 数组按字段做表头，纯文本按行做单列
+ */
+export function generateFile(filename: string, format: SaveFileFormat, content: string): GeneratedFile {
+  let blob: Blob;
+  const ext = format;
 
-    rows.push({
-      序号: c.index + 1,
-      姓名: c.name,
-      页面摘要: c.previewText,
-      AI结果: result ? (result.shouldFavorite ? '推荐跟进' : '暂不跟进') : '未处理',
-      推荐理由: result?.reason ?? '',
-      处理时间: result ? new Date(result.processedAt).toLocaleString('zh-CN', { hour12: false }) : '',
-      使用模型: result?.model ?? '',
-    });
+  // 尝试解析为 JSON 数组（csv/xlsx 会按结构化处理）。
+  let jsonData: unknown[] | null = null;
+  try {
+    const parsed = JSON.parse(content);
+    if (Array.isArray(parsed)) jsonData = parsed;
+  } catch {
+    // 不是 JSON，按纯文本处理。
   }
 
-  const worksheet = XLSX.utils.json_to_sheet(rows);
+  if (format === 'json') {
+    // json 格式：把 content 解析后美化输出，或直接写入。
+    let jsonStr: string;
+    try {
+      jsonStr = JSON.stringify(JSON.parse(content), null, 2);
+    } catch {
+      jsonStr = content;
+    }
+    blob = new Blob([jsonStr], { type: 'application/json;charset=utf-8' });
+  } else if (format === 'txt') {
+    blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+  } else if (format === 'csv') {
+    const csv = jsonData ? jsonToCsv(jsonData) : textToCsv(content);
+    blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
+  } else {
+    // xlsx
+    const ws = jsonData ? XLSX.utils.json_to_sheet(jsonData) : XLSX.utils.json_to_sheet(
+      content.split('\n').filter((line) => line.trim()).map((line) => ({ 内容: line })),
+    );
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, '数据');
+    const arrayBuffer = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+    blob = new Blob([arrayBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  }
 
-  // Column widths
-  worksheet['!cols'] = [
-    { wch: 6 },   // 序号
-    { wch: 12 },  // 姓名
-    { wch: 40 },  // 页面摘要
-    { wch: 12 },  // AI结果
-    { wch: 40 },  // 推荐理由
-    { wch: 20 },  // 处理时间
-    { wch: 18 },  // 使用模型
-  ];
+  const url = URL.createObjectURL(blob);
+  const file: GeneratedFile = {
+    id: `file-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+    filename: `${filename}.${ext}`,
+    size: blob.size,
+    createdAt: new Date().toISOString(),
+    url,
+    format,
+  };
+  generatedFiles.unshift(file);
 
-  const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, '候选人数据');
+  // 最多保留 20 个文件，避免内存泄漏。旧的 URL 释放掉。
+  while (generatedFiles.length > 20) {
+    const old = generatedFiles.pop();
+    if (old) URL.revokeObjectURL(old.url);
+  }
 
-  const timestamp = new Date()
-    .toLocaleString('zh-CN', { hour12: false })
-    .replace(/[/:\s]/g, '-');
+  return file;
+}
 
-  XLSX.writeFile(workbook, `候选人数据_${timestamp}.xlsx`);
+/** 删除一个已生成的文件。 */
+export function removeGeneratedFile(id: string): void {
+  const index = generatedFiles.findIndex((file) => file.id === id);
+  if (index < 0) return;
+  const [removed] = generatedFiles.splice(index, 1);
+  URL.revokeObjectURL(removed.url);
+}
+
+/** JSON 数组转 CSV 字符串。 */
+function jsonToCsv(data: unknown[]): string {
+  if (data.length === 0) return '';
+  const first = data[0] as Record<string, unknown>;
+  const headers = Object.keys(first);
+  const rows = data.map((item) => {
+    const record = item as Record<string, unknown>;
+    return headers.map((header) => escapeCsvValue(record[header])).join(',');
+  });
+  return [headers.join(','), ...rows].join('\n');
+}
+
+/** 纯文本转 CSV（每行一条记录，单列）。 */
+function textToCsv(text: string): string {
+  return text.split('\n').map((line) => escapeCsvValue(line)).join('\n');
+}
+
+/** CSV 值转义。 */
+function escapeCsvValue(value: unknown): string {
+  const str = value === null || value === undefined ? '' : String(value);
+  if (/[",\n]/.test(str)) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+}
+
+/**
+ * 导出对话记录（旧功能，保留）。
+ * 与 generateFile 的区别：这个是把整个对话记录导出，不是 agent 产出的数据。
+ */
+export async function exportFile(options: { filename: string; format: 'txt' | 'csv' | 'xlsx'; content: string }): Promise<{ ok: boolean; message: string }> {
+  const { filename, format, content } = options;
+  const file = generateFile(filename, format, content);
+  // 立即触发下载（旧行为）。
+  const a = document.createElement('a');
+  a.href = file.url;
+  a.download = file.filename;
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  return { ok: true, message: `已导出 ${file.filename}` };
 }

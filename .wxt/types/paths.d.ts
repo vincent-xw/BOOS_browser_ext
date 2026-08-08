@@ -6,6 +6,7 @@ declare module "wxt/browser" {
     | ""
     | "/"
     | "/background.js"
+    | "/content-scripts/content.js"
     | "/sidepanel.html"
   type HtmlPublicPath = Extract<PublicPath, `${string}.html`>
   export interface WxtRuntime {
