@@ -164,7 +164,10 @@ function refreshGeneratedFiles() {
 }
 
 // 每步执行后检查是否有新文件生成（browser_save_file 工具会产生）。
-watch(currentSteps, () => { refreshGeneratedFiles(); }, { deep: true });
+watch(currentSteps, () => {
+  refreshGeneratedFiles();
+  void refreshStoredFiles();
+}, { deep: true });
 
 /** 下载已生成的文件。 */
 function downloadFile(file: GeneratedFile) {
