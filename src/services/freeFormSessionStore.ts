@@ -21,8 +21,10 @@ export interface ConversationTurn {
 /** 一个会话。 */
 export interface StoredSession {
   id: string;
-  /** 首条用户指令的摘要，用作列表标题。 */
+  /** 会话标题。首轮用首条指令截断，agent 回复后用 LLM 生成的标题覆盖。 */
   title: string;
+  /** 标题是否已由 LLM 生成。首轮为 false，agent 回复后为 true。 */
+  titleGenerated: boolean;
   createdAt: string;
   updatedAt: string;
   turns: ConversationTurn[];
@@ -36,12 +38,21 @@ const MAX_SESSIONS = 30;
 /** 单个会话保留的轮次上限。长会话只留最近的，避免单条记录过大。 */
 const MAX_TURNS_PER_SESSION = 60;
 
-/** 从首条用户指令生成标题。 */
+/** 从首条用户指令生成临时标题（agent 回复前的占位）。 */
 export function deriveTitle(turns: readonly ConversationTurn[]): string {
   const firstUser = turns.find((turn) => turn.role === 'user');
   const text = firstUser?.text.trim() ?? '';
   if (!text) return '未命名会话';
   return text.length > 30 ? `${text.slice(0, 30)}…` : text;
+}
+
+/** 从对话内容中提取供 LLM 生成标题的摘要。 */
+export function buildTitlePrompt(turns: readonly ConversationTurn[]): string {
+  const firstUser = turns.find((turn) => turn.role === 'user');
+  const firstAgent = turns.find((turn) => turn.role === 'agent');
+  const userText = (firstUser?.text ?? '').slice(0, 500);
+  const agentText = (firstAgent?.text ?? '').slice(0, 500);
+  return `用户指令：${userText}\n\n执行结果摘要：${agentText}`;
 }
 
 /** 读取全部会话，按最近更新排序。 */
@@ -72,14 +83,16 @@ async function persist(sessions: StoredSession[]): Promise<void> {
  * 写入或更新一个会话。
  * turns 为空时不落库 —— 用户点了「新会话」但一句话没说，不该在列表里留下空项。
  */
-export async function saveSession(session: { id: string; turns: ConversationTurn[]; createdAt?: string }): Promise<void> {
+export async function saveSession(session: { id: string; turns: ConversationTurn[]; createdAt?: string; title?: string; titleGenerated?: boolean }): Promise<void> {
   if (session.turns.length === 0) return;
   const sessions = await loadSessions();
   const existing = sessions.find((item) => item.id === session.id);
   const now = new Date().toISOString();
+  const titleGenerated = session.titleGenerated ?? existing?.titleGenerated ?? false;
   const entry: StoredSession = {
     id: session.id,
-    title: deriveTitle(session.turns),
+    title: session.title ?? existing?.title ?? deriveTitle(session.turns),
+    titleGenerated,
     createdAt: existing?.createdAt ?? session.createdAt ?? now,
     updatedAt: now,
     turns: session.turns.slice(-MAX_TURNS_PER_SESSION),

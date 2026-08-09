@@ -13,6 +13,7 @@ import {
   loadSessions,
   newSessionId,
   saveSession,
+  buildTitlePrompt,
 } from '../services/freeFormSessionStore';
 import type { ConversationTurn, StoredSession } from '../services/freeFormSessionStore';
 import { isUrlAllowed } from '../services/urlAllowlist';
@@ -285,6 +286,8 @@ export function useFreeFormController() {
       });
       appendTurn('agent', formatOutput(result.output), currentSteps.value);
       runState.value = 'succeeded';
+      // agent 回复后异步生成会话标题（不阻塞 UI）。
+      void generateSessionTitle();
     } catch (error) {
       const message = error instanceof BffError ? error.message : error instanceof Error ? error.message : String(error);
       runState.value = 'failed';
@@ -304,6 +307,40 @@ export function useFreeFormController() {
     ];
     // 每轮都落库：sessionId 是切回旧会话的唯一凭据，丢了它 BFF 侧的上下文就不可达了。
     void saveSession({ id: sessionId.value, turns: turns.value });
+  }
+
+  /**
+   * 用 LLM 为当前会话生成一个简短标题。
+   *
+   * 只在 agent 首次回复后执行一次（titleGenerated=false 时才跑）。
+   * 调 BFF 的 run 接口，用 planning prompt（skipTools，纯文本输出），
+   * 让模型根据用户指令和执行结果生成一个 10-20 字的标题。
+   * 失败时静默 -- 标题不生成不影响功能，只是列表展示用截断的指令文本。
+   */
+  async function generateSessionTitle(): Promise<void> {
+    try {
+      const existing = sessions.value.find((s) => s.id === sessionId.value);
+      if (existing?.titleGenerated) return;
+
+      const titlePrompt = buildTitlePrompt(turns.value);
+      const result = await runAgent(
+        toBffConfig(settings.value),
+        sessionId.value,
+        `根据以下对话内容，生成一个10-20字的中文标题，概括这个任务的主题。只输出标题文本，不要标点、不要解释、不要引号。\n\n${titlePrompt}`,
+        {},
+        'planning',
+      );
+
+      if (result.type !== 'final') return;
+      const title = String(result.output).trim().slice(0, 30);
+      if (!title) return;
+
+      // 更新会话标题并标记为已生成。
+      await saveSession({ id: sessionId.value, turns: turns.value, title, titleGenerated: true });
+      await refreshSessions();
+    } catch {
+      // 标题生成失败不影响功能。
+    }
   }
 
   /** 刷新会话列表。 */
