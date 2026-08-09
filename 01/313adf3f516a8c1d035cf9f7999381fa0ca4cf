@@ -1,0 +1,34 @@
+src/services/fileStore.ts
+  s_a05627423297e0::t_de5cfa13b894ee 1-92
+src/components/FreeFormPanel.vue
+  s_a05627423297e0::t_cae02f7f6fa7a7 196-228
+  s_a05627423297e0::t_f21ec8c149f5cf 405-429
+  s_a05627423297e0::t_6dc88da67bc046 1006-1045
+  s_a05627423297e0::t_6d45b67ea9c58b 3
+  s_a05627423297e0::t_1ac7945f3a35b0 12-13
+  s_a05627423297e0::t_4b67df001222bd 79
+src/services/toolsCatalog.ts
+  s_a05627423297e0::t_d0c2e3683f33d5 89-100
+src/agent/toolExecutor.ts
+  s_a05627423297e0::t_b604ad4cd99578 284-334
+  s_a05627423297e0::t_aa872e6596de90 34-35
+  s_a05627423297e0::t_2b94becc3c503d 46-47
+src/agent/toolExecutor.test.ts
+  s_a05627423297e0::t_b303f71fb94bbd 31-32
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "01313adf3f516a8c1d035cf9f7999381fa0ca4cf",
+  "prompts": {},
+  "sessions": {
+    "s_a05627423297e0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ef888fdd-3960-4dd1-a9e4-276b31912f28",
+        "model": "auto"
+      },
+      "human_author": "xuewen.jia <xuewen.jia@ly.com>"
+    }
+  }
+}
