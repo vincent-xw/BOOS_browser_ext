@@ -28,6 +28,8 @@ describe('白名单', () => {
       'browser_verify',
       'browser_screenshot',
       'browser_save_file',
+      'browser_read_file',
+      'browser_write_file',
     ]);
   });
 

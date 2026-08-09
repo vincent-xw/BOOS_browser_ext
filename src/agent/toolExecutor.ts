@@ -31,6 +31,8 @@ export const TOOL_ALLOWLIST = [
   'browser_verify',
   'browser_screenshot',
   'browser_save_file',
+  'browser_read_file',
+  'browser_write_file',
 ] as const;
 
 /** 只读工具：不改变页面状态，审批时可自动放行。 */
@@ -41,6 +43,8 @@ export const READ_ONLY_TOOLS: readonly ToolName[] = [
   'browser_verify',
   'browser_screenshot',
   'browser_save_file',
+  'browser_read_file',
+  'browser_write_file',
 ];
 
 export type ToolName = (typeof TOOL_ALLOWLIST)[number];
@@ -275,6 +279,57 @@ export async function executeTool(
           message: `已生成文件 ${file.filename}（${(file.size / 1024).toFixed(1)}KB）。用户可在对话区域点击下载。`,
           fileId: file.id,
           filename: file.filename,
+        };
+      }
+
+      case 'browser_read_file': {
+        // 从 IndexedDB 读取持久化的文本文件。跨会话可用。
+        const name = input.name;
+        if (typeof name !== 'string' || !name.trim()) {
+          return invalid('缺少文件名（name 字段）。');
+        }
+        const { readFile } = await import('../services/fileStore');
+        const file = await readFile(name);
+        if (!file) {
+          return {
+            ok: false,
+            code: 'TOOL_EXECUTION_FAILED',
+            message: `文件「${name}」不存在。可用文件列表请参考上下文中的 fileList。`,
+          };
+        }
+        // 大文件截断：默认返回前 50000 字符 + 总长度提示。
+        const maxChars = 50000;
+        const truncated = file.content.length > maxChars;
+        return {
+          ok: true,
+          name: file.name,
+          content: truncated ? file.content.slice(0, maxChars) : file.content,
+          size: file.size,
+          truncated,
+          totalLength: file.content.length,
+          message: truncated
+            ? `文件「${name}」共 ${file.content.length} 字符，已返回前 ${maxChars} 字符。如需更多内容请分段读取。`
+            : `文件「${name}」读取成功，共 ${file.content.length} 字符。`,
+        };
+      }
+
+      case 'browser_write_file': {
+        // 将文本写入 IndexedDB，跨会话持久化。
+        const name = input.name;
+        const content = input.content;
+        if (typeof name !== 'string' || !name.trim()) {
+          return invalid('缺少文件名（name 字段）。');
+        }
+        if (typeof content !== 'string') {
+          return invalid('缺少文件内容（content 字段，必须是字符串）。');
+        }
+        const { writeFile } = await import('../services/fileStore');
+        const file = await writeFile(name, content);
+        return {
+          ok: true,
+          name: file.name,
+          size: file.size,
+          message: `文件「${name}」已保存（${(file.size / 1024).toFixed(1)}KB）。下次会话可直接读取，无需重传。`,
         };
       }
     }

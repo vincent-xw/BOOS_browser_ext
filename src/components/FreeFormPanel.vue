@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
-import { ArrowDown, Delete, QuestionFilled, Star, CopyDocument, Download } from '@element-plus/icons-vue';
+import { ArrowDown, Delete, QuestionFilled, Star, CopyDocument, Download, Upload, FolderOpened } from '@element-plus/icons-vue';
 import { ElMessage } from 'element-plus';
 import { useFreeFormController } from '../composables/useFreeFormController';
 import type { GrantScope } from '../agent/approvalGate';
@@ -9,6 +9,8 @@ import { useSkillController } from '../composables/useSkillController';
 import type { Skill } from '../services/skillStore';
 import { exportFile, getGeneratedFiles, removeGeneratedFile } from '../services/exportService';
 import type { GeneratedFile } from '../services/exportService';
+import { writeFile, listFiles, deleteFile } from '../services/fileStore';
+import type { StoredFile } from '../services/fileStore';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 
@@ -74,6 +76,7 @@ function acknowledgeToolsHelp() {
 onMounted(() => {
   void refreshPageContext();
   void refreshSessions();
+  void refreshStoredFiles();
   // 首次使用自动弹出工具说明，等用户点「我已了解」才关闭并记录。
   void chrome.storage.local.get(ONBOARDING_KEY).then((stored) => {
     if (!stored[ONBOARDING_KEY]) {
@@ -188,6 +191,39 @@ const previewingScreenshot = ref<GeneratedFile | null>(null);
 function previewScreenshot(file: GeneratedFile) {
   previewingScreenshot.value = file;
   screenshotPreviewVisible.value = true;
+}
+
+/** 持久化文件列表（IndexedDB）。 */
+const storedFiles = ref<Array<Omit<StoredFile, 'content'>>>([]);
+
+/** 刷新文件列表。 */
+async function refreshStoredFiles() {
+  storedFiles.value = await listFiles();
+}
+
+/** 文件选择：读取文本文件存入 IndexedDB。 */
+const fileInputRef = ref<HTMLInputElement | null>(null);
+
+function triggerFilePicker() {
+  fileInputRef.value?.click();
+}
+
+async function handleFileSelect(event: Event) {
+  const input = event.target as HTMLInputElement;
+  if (!input.files?.length) return;
+  for (const file of input.files) {
+    const text = await file.text();
+    await writeFile(file.name, text);
+    ElMessage.success(`已上传 ${file.name}`);
+  }
+  input.value = '';
+  await refreshStoredFiles();
+}
+
+/** 删除持久化文件。 */
+async function handleDeleteStoredFile(name: string) {
+  await deleteFile(name);
+  await refreshStoredFiles();
 }
 
 /**
@@ -364,6 +400,31 @@ function stepSummary(output: unknown): { text: string; type: 'success' | 'warnin
         <el-tooltip v-if="currentUrl" :content="currentUrl" placement="top">
           <el-text size="small" type="info" class="url-text">{{ shortUrl }}</el-text>
         </el-tooltip>
+      </div>
+
+      <!-- 持久化文件管理：上传/查看/删除文本文件 -->
+      <div class="file-section">
+        <div class="file-section-header">
+          <el-text size="small" tag="b">文件</el-text>
+          <el-button :icon="Upload" link size="small" @click="triggerFilePicker">上传文件</el-button>
+          <input
+            ref="fileInputRef"
+            type="file"
+            multiple
+            accept=".txt,.csv,.json,.md,.xml,.html,.js,.ts,.py,.yaml,.yml,text/*"
+            style="display: none"
+            @change="handleFileSelect"
+          />
+        </div>
+        <div v-if="storedFiles.length" class="stored-files">
+          <div v-for="file in storedFiles" :key="file.name" class="stored-file-item">
+            <el-icon class="stored-file-icon"><FolderOpened /></el-icon>
+            <el-text size="small" class="stored-file-name">{{ file.name }}</el-text>
+            <el-text size="small" type="info">{{ (file.size / 1024).toFixed(1) }}KB</el-text>
+            <el-button :icon="Delete" link size="small" @click="handleDeleteStoredFile(file.name)" />
+          </div>
+        </div>
+        <el-text v-else size="small" type="info">未上传文件。上传后 agent 可读取和加工，跨会话可用。</el-text>
       </div>
 
       <!-- 对话记录：多轮上下文让「点第三条结果」这类指代成立 -->
@@ -941,5 +1002,45 @@ function stepSummary(output: unknown): { text: string; type: 'success' | 'warnin
   display: flex;
   flex-direction: column;
   min-width: 0;
+}
+
+.file-section {
+  flex-shrink: 0;
+  padding: 8px 10px;
+  background: var(--el-fill-color-light);
+  border-radius: 6px;
+}
+
+.file-section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.stored-files {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.stored-file-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+}
+
+.stored-file-icon {
+  color: var(--el-color-info);
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.stored-file-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

@@ -86,4 +86,16 @@ export const TOOLS_CATALOG: readonly ToolDescription[] = [
     description: '把收集到的数据生成 txt/csv/xlsx/json 文件。文件生成后会在对话区域出现下载按钮，用户点击即可下载。这是只读操作，不需要审批。适合汇总数据导出场景。',
     category: 'read',
   },
+  {
+    name: 'browser_read_file',
+    title: '读取文件',
+    description: '从持久化存储读取用户上传的文本文件。跨会话可用。适合读取用户提供的 CSV/JSON/TXT 数据进行处理。',
+    category: 'read',
+  },
+  {
+    name: 'browser_write_file',
+    title: '保存文件',
+    description: '将文本内容保存到持久化存储。跨会话可用，下次会话可直接读取。适合保存中间结果、加工后的数据。',
+    category: 'read',
+  },
 ];
