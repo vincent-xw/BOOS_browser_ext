@@ -1,0 +1,26 @@
+src/services/freeFormSessionStore.ts
+  s_a05627423297e0::t_0a9c330bace902 41,49-55
+  s_a05627423297e0::t_acfe6bd80b2d3c 86,91,94-95
+  s_a05627423297e0::t_8f3845450f92be 24,26-27
+  s_a05627423297e0::t_4f25c84eea4844 56-57
+src/composables/useFreeFormController.ts
+  s_a05627423297e0::t_ac76cb32f8188d 289-290
+  s_a05627423297e0::t_d7fe6a9b3dee39 312-345
+  s_a05627423297e0::t_7ed231f70f7005 16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "edf4b40784283b00bad55ecd487065e6544d3681",
+  "prompts": {},
+  "sessions": {
+    "s_a05627423297e0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ef888fdd-3960-4dd1-a9e4-276b31912f28",
+        "model": "glm-5.2"
+      },
+      "human_author": "xuewen.jia <xuewen.jia@ly.com>"
+    }
+  }
+}
