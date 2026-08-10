@@ -1,0 +1,19 @@
+entrypoints/content.ts
+  s_a05627423297e0::t_23c5319c6b3539 17
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "0e67635f742aea8c5cd6713f50d79fae7c2e8ae7",
+  "prompts": {},
+  "sessions": {
+    "s_a05627423297e0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ef888fdd-3960-4dd1-a9e4-276b31912f28",
+        "model": "glm-5.2"
+      },
+      "human_author": "xuewen.jia <xuewen.jia@ly.com>"
+    }
+  }
+}
