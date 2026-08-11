@@ -22,6 +22,12 @@ import { useFileAttachments } from './useFileAttachments';
 import { MessageType } from '../types/messages';
 import type { OperationError, OperationState } from '../types/page-io';
 
+/**
+ * 传给计划阶段的正文摘要上限。
+ * 足够判断「这是哪个页面、上面有什么」，又不至于把长列表页的全文灌进上下文。
+ */
+const PAGE_TEXT_LIMIT = 1500;
+
 /** 工具错误码到可读中文的映射。未知错误码走兜底。 */
 const TOOL_ERROR_LABELS: Record<string, string> = {
   TOOL_NOT_ALLOWED: '当前不支持这类操作',
@@ -202,10 +208,25 @@ export function useFreeFormController() {
         // 快照失败不阻断计划 -- 模型仍可基于指令评估，只是看不到当前页面。
       }
 
+      // 正文摘要单独取：快照只有可交互元素列表，没有正文，模型看得到一堆按钮
+      // 却不知道页面在讲什么，判断不出「已经在目标结果页」。
+      let pageText = '';
+      try {
+        const page = await send<{ bodyPreview?: string }>({ type: MessageType.ContentReadPage, tabId });
+        pageText = page?.bodyPreview ?? '';
+      } catch {
+        // 读正文失败不阻断计划。
+      }
+
       const fileList = attachments.buildFileList();
       const context: Record<string, unknown> = {};
       if (snapshot) context.snapshot = snapshot;
       if (fileList.length) context.fileList = fileList;
+      // URL / 标题 / 正文摘要让模型能判断当前页面是否已满足目标，从而跳过重复流程
+      // （例如已经停在某个搜索结果页时不必再走一遍搜索）。
+      if (tab?.url) context.currentUrl = tab.url;
+      if (tab?.title) context.pageTitle = tab.title;
+      if (pageText) context.pageText = pageText.slice(0, PAGE_TEXT_LIMIT);
 
       const result = await runAgent(
         toBffConfig(settings.value),
@@ -293,6 +314,10 @@ export function useFreeFormController() {
       const fileList = attachments.buildFileList();
       const context: Record<string, unknown> = {};
       if (fileList.length) context.fileList = fileList;
+      // 执行阶段同样给出页面身份：用户可能跳过计划直接执行，
+      // 缺了它模型只能靠快照猜自己在哪一页。
+      if (currentUrl.value) context.currentUrl = currentUrl.value;
+      if (currentTitle.value) context.pageTitle = currentTitle.value;
 
       const result = await runAgentSession(text, {
         config: toBffConfig(settings.value),

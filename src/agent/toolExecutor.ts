@@ -192,6 +192,14 @@ export function createMessageSender(): MessageSender {
 export interface ToolExecutorOptions {
   tabId: number;
   send: MessageSender;
+  /** 本轮用户原始指令。用于判断截图是否为用户意图：模型看不到截图内容，自己截了也没用。 */
+  userInstruction?: string;
+}
+
+/** 判断指令是否明确要求截图。只有这种情况才把截图落盘，避免附件列表被无用截图填满。 */
+export function expressesScreenshotIntent(text: string | undefined): boolean {
+  if (!text) return false;
+  return /截图|截屏|截个屏|屏截|screenshot|screen capture/i.test(text);
 }
 
 /**
@@ -325,17 +333,24 @@ export async function executeTool(
           tabId,
           ...(input.format === 'jpeg' || input.format === 'png' ? { format: input.format } : {}),
         });
-        // 截图存入 generatedFiles，UI 展示缩略图供用户查看和下载。
+        // 只有用户明确要求截图时才落盘、进附件列表。截图不回传给模型，模型自己截了
+        // 既看不见也不会下载，纯粹污染列表与存储。
+        if (!expressesScreenshotIntent(options.userInstruction)) {
+          return {
+            width: shot.width,
+            height: shot.height,
+            persisted: false,
+            message: `已截图（${shot.width}x${shot.height}），但未保存：截图不会返回给你，你看不到内容，只有用户明确要求时才保存。不要用它排查页面状态，请改用 browser_snapshot。`,
+          };
+        }
         const { generateScreenshot } = await import('../services/exportService');
         const format = (input.format === 'jpeg' ? 'jpeg' : 'png') as 'png' | 'jpeg';
         const screenshot = generateScreenshot(shot.dataUrl, format, shot.width, shot.height);
-        // 绝不把 base64 返回给模型：一张截图约 4 万 token，会挤爆上下文窗口，
-        // 导致模型输出退化成畸形字符串（曾表现为工具名被污染后整轮中断）。
-        // base64 已存入 generatedFiles 供 UI 使用，模型只需要知道截图存在。
         return {
           width: shot.width,
           height: shot.height,
           screenshotId: screenshot.id,
+          persisted: true,
           message: `截图已保存（${shot.width}x${shot.height}），用户可在对话区域查看和下载。`,
         };
       }
@@ -354,7 +369,9 @@ export async function executeTool(
         const file = generateFile(filename, format as 'txt' | 'csv' | 'xlsx' | 'json', content);
         return {
           ok: true,
-          message: `已生成文件 ${file.filename}（${(file.size / 1024).toFixed(1)}KB）。在最终回复里用 markdown 链接 [${file.filename}](${file.url}) 给出下载；如果链接不可用，告诉用户点输入框旁的附件按钮下载。`,
+          // 不要让模型拼 blob: 链接：正文经 DOMPurify 净化会把 blob: 的 href 剥掉，
+          // 结果是「链接显示正常但点击无反应」。下载卡片由 UI 按 fileId 渲染。
+          message: `已生成文件 ${file.filename}（${(file.size / 1024).toFixed(1)}KB）。对话区域会自动出现该文件的下载卡片，你只需在回复里提到文件名，不要自己拼下载链接。`,
           fileId: file.id,
           filename: file.filename,
         };

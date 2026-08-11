@@ -83,7 +83,8 @@ export const TOOLS_CATALOG: readonly ToolDescription[] = [
   {
     name: 'browser_screenshot',
     title: '截图',
-    description: '截取当前屏幕。当模型反复定位失败时用来观察页面实际状态。',
+    description:
+      '给当前页面截图并保存，供用户查看下载。仅在用户明确要求截图时使用（如「帮我截个图」）——截图不会返回给你，你看不到图片内容，用它来观察或排查页面状态是无效的，请改用 browser_snapshot。',
     category: 'read',
   },
   {

@@ -199,6 +199,25 @@ function downloadFile(file: GeneratedFile) {
   document.body.removeChild(a);
 }
 
+/**
+ * 某一轮里 agent 生成的文件。
+ *
+ * 从步骤输出的 fileId / screenshotId 反查，而不是让模型在正文里写 markdown 链接 ——
+ * 正文经 DOMPurify 净化，blob: 协议不在其默认白名单里，href 会被剥掉，
+ * 表现为「链接看得见但点了没反应」。放开 blob: 白名单等于允许模型注入任意链接，
+ * 所以改成由 UI 按 id 渲染卡片，模型只需提到文件名。
+ */
+function turnFiles(turn: ConversationTurn): GeneratedFile[] {
+  const ids = new Set<string>();
+  for (const step of turn.steps ?? []) {
+    const output = step.output as { fileId?: unknown; screenshotId?: unknown } | null;
+    if (typeof output?.fileId === 'string') ids.add(output.fileId);
+    if (typeof output?.screenshotId === 'string') ids.add(output.screenshotId);
+  }
+  if (ids.size === 0) return [];
+  return allFiles.value.filter((file) => ids.has(file.id));
+}
+
 /** 删除文件（同时取消勾选）。 */
 function handleRemoveFile(id: string) {
   removeGeneratedFile(id);
@@ -482,6 +501,23 @@ function copyStepDetail(step: { toolName: string; input: unknown; output: unknow
           </div>
           <div v-if="turn.role === 'agent'" class="turn-text markdown-body" v-html="renderMarkdown(turn.text)"></div>
           <div v-else class="turn-text">{{ turn.text }}</div>
+          <div v-if="turn.role === 'agent' && turnFiles(turn).length" class="turn-files">
+            <div v-for="file in turnFiles(turn)" :key="file.id" class="turn-file">
+              <img
+                v-if="file.isImage"
+                :src="file.url"
+                class="turn-file-thumb"
+                :alt="file.filename"
+                @click="previewScreenshot(file)"
+              />
+              <el-icon v-else class="turn-file-icon"><Document /></el-icon>
+              <div class="turn-file-info">
+                <el-text size="small" truncated>{{ file.filename }}</el-text>
+                <el-text size="small" type="info">{{ (file.size / 1024).toFixed(1) }}KB</el-text>
+              </div>
+              <el-button link size="small" @click="downloadFile(file)">下载</el-button>
+            </div>
+          </div>
           <el-collapse v-if="turn.steps?.length" class="turn-steps">
             <el-collapse-item :title="`执行了 ${turn.steps.length} 步`" :name="index">
               <div v-for="step in turn.steps" :key="step.step" class="step-row">
@@ -964,6 +1000,41 @@ function copyStepDetail(step: { toolName: string; input: unknown; output: unknow
 
 .turn-steps {
   margin-top: 6px;
+}
+
+.turn-files {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+.turn-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 6px;
+  background: var(--el-fill-color-blank);
+}
+.turn-file-thumb {
+  width: 48px;
+  height: 36px;
+  object-fit: cover;
+  border-radius: 4px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.turn-file-icon {
+  font-size: 20px;
+  color: var(--el-text-color-secondary);
+  flex-shrink: 0;
+}
+.turn-file-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
 }
 
 .step-row {

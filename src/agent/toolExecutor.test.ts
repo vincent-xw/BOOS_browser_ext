@@ -304,3 +304,42 @@ describe('执行失败', () => {
     expect((result as { message: string }).message).toContain('NO_DEBUG_SESSION');
   });
 });
+
+describe('截图意图判断', () => {
+  function screenshotSender() {
+    const sent: ExtensionRequest[] = [];
+    const send = (async (message: ExtensionRequest) => {
+      sent.push(message);
+      if (message.type === MessageType.CdpScreenshot) {
+        return { dataUrl: 'data:image/png;base64,xxxx', width: 100, height: 100 };
+      }
+      return { ok: true };
+    }) as unknown as <T>(message: ExtensionRequest) => Promise<T>;
+    return { sent, send };
+  }
+
+  it('中文「截图」触发保存', async () => {
+    const { send } = screenshotSender();
+    const result = await executeTool('browser_screenshot', {}, { tabId: 1, send, userInstruction: '帮我截图当前页面' });
+    expect(result).toMatchObject({ persisted: true, screenshotId: expect.any(String) });
+  });
+
+  it('用户未提截图时不保存，避免污染附件列表', async () => {
+    const { send } = screenshotSender();
+    const result = await executeTool('browser_screenshot', {}, { tabId: 1, send, userInstruction: '查一下订单状态' });
+    expect(result).toMatchObject({ persisted: false });
+    expect((result as { message: string }).message).toContain('browser_snapshot');
+  });
+
+  it('无 userInstruction 时默认不保存（模型自发截图）', async () => {
+    const { send } = screenshotSender();
+    const result = await executeTool('browser_screenshot', {}, { tabId: 1, send });
+    expect(result).toMatchObject({ persisted: false });
+  });
+
+  it('英文 screenshot 同样识别为意图', async () => {
+    const { send } = screenshotSender();
+    const result = await executeTool('browser_screenshot', {}, { tabId: 1, send, userInstruction: 'take a screenshot for me' });
+    expect(result).toMatchObject({ persisted: true });
+  });
+});

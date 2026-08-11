@@ -207,11 +207,11 @@ export async function runAgentSession(input: string, options: AgentSessionOption
       let output: unknown;
       let denied = false;
       if (!allowed) {
-        output = await executeTool(call.toolName, call.input, { tabId, send });
+        output = await executeTool(call.toolName, call.input, { tabId, send, userInstruction: input });
       } else if (approval) {
         const decision = await approval.requestPermission(call.toolName, call.input, options.currentUrl ?? '');
         if (decision.approved) {
-          output = await executeTool(call.toolName, call.input, { tabId, send });
+          output = await executeTool(call.toolName, call.input, { tabId, send, userInstruction: input });
         } else {
           denied = true;
           output = {
@@ -221,7 +221,7 @@ export async function runAgentSession(input: string, options: AgentSessionOption
           };
         }
       } else {
-        output = await executeTool(call.toolName, call.input, { tabId, send });
+        output = await executeTool(call.toolName, call.input, { tabId, send, userInstruction: input });
       }
 
       onStep?.({ step, toolName: call.toolName, input: call.input, output, allowed, ...(denied ? { denied } : {}) });
