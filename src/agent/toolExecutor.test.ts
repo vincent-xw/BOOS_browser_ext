@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { executeTool, isAllowedTool, isReadOnlyTool, TOOL_ALLOWLIST } from './toolExecutor';
+import { executeTool, isAllowedTool, isReadOnlyTool, normalizeWaitFor, TOOL_ALLOWLIST } from './toolExecutor';
 import { MessageType } from '../types/messages';
 import type { ExtensionRequest } from '../types/messages';
 
@@ -21,6 +21,8 @@ describe('白名单', () => {
       'browser_read_page',
       'browser_locate_element',
       'browser_click',
+      'browser_hover',
+      'browser_wait_for',
       'browser_input_text',
       'browser_press_key',
       'browser_scroll',
@@ -46,12 +48,46 @@ describe('白名单', () => {
 
   it('只读工具与写工具划分正确', () => {
     // 这条划分决定了审批门放行谁：读自动、写需批准。
-    for (const name of ['browser_snapshot', 'browser_read_page', 'browser_locate_element', 'browser_verify', 'browser_screenshot']) {
+    for (const name of ['browser_snapshot', 'browser_read_page', 'browser_locate_element', 'browser_verify', 'browser_screenshot', 'browser_hover', 'browser_wait_for']) {
       expect(isReadOnlyTool(name), `${name} 应为只读`).toBe(true);
     }
     for (const name of ['browser_click', 'browser_input_text', 'browser_press_key', 'browser_scroll']) {
       expect(isReadOnlyTool(name), `${name} 应为写操作`).toBe(false);
     }
+  });
+});
+
+describe('normalizeWaitFor', () => {
+  it('appear / disappear 必须给 selector', () => {
+    expect(normalizeWaitFor({ condition: 'appear' }).ok).toBe(false);
+    expect(normalizeWaitFor({ condition: 'disappear', selector: '  ' }).ok).toBe(false);
+    expect(normalizeWaitFor({ condition: 'appear', selector: '.el-select-dropdown' }).ok).toBe(true);
+  });
+
+  it('stable 不需要 selector', () => {
+    const result = normalizeWaitFor({ condition: 'stable' });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value).toEqual({ condition: 'stable' });
+  });
+
+  it('拒绝未知的 condition', () => {
+    expect(normalizeWaitFor({ condition: 'whatever' }).ok).toBe(false);
+    expect(normalizeWaitFor({}).ok).toBe(false);
+  });
+
+  it('越界的超时值被夹到区间内而不是报错', () => {
+    // 模型给出离谱数值时纠正即可，报错只会让它重试一遍同样的错。
+    const tooLong = normalizeWaitFor({ condition: 'stable', timeoutMs: 999_999, stableMs: 99_999 });
+    expect(tooLong.ok).toBe(true);
+    if (tooLong.ok) expect(tooLong.value).toMatchObject({ timeoutMs: 15_000, stableMs: 3_000 });
+
+    const tooShort = normalizeWaitFor({ condition: 'stable', timeoutMs: 1, stableMs: 1 });
+    if (tooShort.ok) expect(tooShort.value).toMatchObject({ timeoutMs: 100, stableMs: 100 });
+  });
+
+  it('selector 两端空白被裁掉', () => {
+    const result = normalizeWaitFor({ condition: 'appear', selector: '  .dropdown  ' });
+    if (result.ok) expect(result.value.selector).toBe('.dropdown');
   });
 });
 
@@ -209,17 +245,20 @@ describe('ref 引用派发', () => {
     });
   });
 
-  it('clearFirst 会在写入前全选删除', async () => {
+  it('clearFirst 会把清空折叠进写入消息，不再拆成多次消息', async () => {
     const { sent, send } = refSender({ found: true, x: 1, y: 2 });
     await executeTool('browser_input_text', { ref: 2, text: '新内容', clearFirst: true }, { tabId: 1, send });
     const types = sent.map((message) => message.type);
-    // 解析 ref → 点击聚焦 → 退格清空 → 写入
+    // 解析 ref → 写入（clearFirst 在 background 同一次消息内完成，
+    // 拆成点击+退格两条消息会让后续点击冲掉选区，导致原文本一个字都没删）
     expect(types).toEqual([
       MessageType.ContentResolveRef,
-      MessageType.CdpClick,
-      MessageType.CdpPressKey,
       MessageType.CdpInputText,
     ]);
+    expect(sent.find((message) => message.type === MessageType.CdpInputText)).toMatchObject({
+      clearFirst: true,
+      text: '新内容',
+    });
   });
 
   it('ref 解析出的 label 用作点击日志标签', async () => {

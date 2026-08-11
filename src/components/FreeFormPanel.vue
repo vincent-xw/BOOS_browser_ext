@@ -1,16 +1,24 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
-import { ArrowDown, Delete, QuestionFilled, Star, CopyDocument, Download, Upload, FolderOpened } from '@element-plus/icons-vue';
+import { ArrowDown, Delete, QuestionFilled, Star, CopyDocument, Download, Upload, FolderOpened, Paperclip, Picture, Document } from '@element-plus/icons-vue';
 import { ElMessage } from 'element-plus';
 import { useFreeFormController } from '../composables/useFreeFormController';
 import type { GrantScope } from '../agent/approvalGate';
 import { TOOLS_CATALOG } from '../services/toolsCatalog';
 import { useSkillController } from '../composables/useSkillController';
 import type { Skill } from '../services/skillStore';
-import { exportFile, getGeneratedFiles, removeGeneratedFile } from '../services/exportService';
+import {
+  exportFile,
+  getGeneratedFiles,
+  removeGeneratedFile,
+  writeFile,
+  initFileStore,
+  clearAllFiles,
+} from '../services/exportService';
 import type { GeneratedFile } from '../services/exportService';
-import { writeFile, listFiles, deleteFile } from '../services/fileStore';
-import type { StoredFile } from '../services/fileStore';
+import { formatFreeFormDiagnostic } from '../services/freeFormDiagnostics';
+import { formatDiagnosticResult, runDiagnostics } from '../services/diagnosticService';
+import type { ConversationTurn } from '../services/freeFormSessionStore';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 
@@ -56,6 +64,7 @@ const {
   removeSession,
   refreshSessions,
   refreshPageContext,
+  attachments,
 } = useFreeFormController();
 
 const { saveFromTurns } = useSkillController();
@@ -76,7 +85,7 @@ function acknowledgeToolsHelp() {
 onMounted(() => {
   void refreshPageContext();
   void refreshSessions();
-  void refreshStoredFiles();
+  void initFileStore().then(() => refreshAllFiles());
   // 首次使用自动弹出工具说明，等用户点「我已了解」才关闭并记录。
   void chrome.storage.local.get(ONBOARDING_KEY).then((stored) => {
     if (!stored[ONBOARDING_KEY]) {
@@ -155,21 +164,25 @@ function newDatetoISOString(): string {
   return new Date().toISOString();
 }
 
-/** agent 生成的文件列表。每步执行后刷新，展示下载按钮。 */
-const generatedFiles = ref<GeneratedFile[]>([]);
+/** 全部文件（截图 + 生成文件 + 上传文件），从统一存储取。 */
+const allFiles = ref<GeneratedFile[]>([]);
 
-/** 刷新生成的文件列表（从 exportService 内存中取）。 */
-function refreshGeneratedFiles() {
-  generatedFiles.value = getGeneratedFiles();
+function refreshAllFiles() {
+  allFiles.value = getGeneratedFiles();
 }
 
-// 每步执行后检查是否有新文件生成（browser_save_file 工具会产生）。
-watch(currentSteps, () => {
-  refreshGeneratedFiles();
-  void refreshStoredFiles();
-}, { deep: true });
+// 每步执行后检查是否有新文件生成（browser_screenshot / browser_save_file）。
+watch(currentSteps, () => refreshAllFiles(), { deep: true });
 
-/** 下载已生成的文件。 */
+/** 附件管理弹窗。 */
+const fileManagerVisible = ref(false);
+
+function openFileManager() {
+  refreshAllFiles();
+  fileManagerVisible.value = true;
+}
+
+/** 下载文件。 */
 function downloadFile(file: GeneratedFile) {
   const a = document.createElement('a');
   a.href = file.url;
@@ -180,31 +193,22 @@ function downloadFile(file: GeneratedFile) {
   document.body.removeChild(a);
 }
 
-/** 删除已生成的文件。 */
+/** 删除文件（同时取消勾选）。 */
 function handleRemoveFile(id: string) {
   removeGeneratedFile(id);
-  refreshGeneratedFiles();
+  refreshAllFiles();
 }
 
-/** 截图预览状态。 */
+/** 截图预览。 */
 const screenshotPreviewVisible = ref(false);
 const previewingScreenshot = ref<GeneratedFile | null>(null);
 
-/** 点击缩略图预览大图。 */
 function previewScreenshot(file: GeneratedFile) {
   previewingScreenshot.value = file;
   screenshotPreviewVisible.value = true;
 }
 
-/** 持久化文件列表（IndexedDB）。 */
-const storedFiles = ref<Array<Omit<StoredFile, 'content'>>>([]);
-
-/** 刷新文件列表。 */
-async function refreshStoredFiles() {
-  storedFiles.value = await listFiles();
-}
-
-/** 文件选择：读取文本文件存入 IndexedDB。 */
+/** 本地上传文本文件。 */
 const fileInputRef = ref<HTMLInputElement | null>(null);
 
 function triggerFilePicker() {
@@ -220,13 +224,14 @@ async function handleFileSelect(event: Event) {
     ElMessage.success(`已上传 ${file.name}`);
   }
   input.value = '';
-  await refreshStoredFiles();
+  refreshAllFiles();
 }
 
-/** 删除持久化文件。 */
-async function handleDeleteStoredFile(name: string) {
-  await deleteFile(name);
-  await refreshStoredFiles();
+/** 清空全部文件。 */
+async function handleClearAllFiles() {
+  await clearAllFiles();
+  refreshAllFiles();
+  ElMessage.success('已清空所有文件');
 }
 
 /**
@@ -290,6 +295,34 @@ function copyTurnText(text: string, index: number) {
 }
 
 /**
+ * 复制失败轮次的诊断日志，供用户贴给大模型排查。
+ *
+ * 有意包含完整的工具入参出参 —— 省略掉的往往正是关键。代价是可能含简历/沟通原文，
+ * 所以 toast 必须提示，让用户外发前自己过一眼。
+ */
+async function copyDiagnosticLog(turn: ConversationTurn) {
+  const text = formatFreeFormDiagnostic({
+    sessionId: sessionId.value,
+    timestamp: turn.timestamp,
+    extensionVersion: chrome.runtime.getManifest().version,
+    url: currentUrl.value,
+    error: {
+      code: turn.error?.bffCode ?? turn.error?.code ?? 'UNKNOWN',
+      message: turn.error?.message ?? turn.text,
+      ...(turn.error?.requestId ? { requestId: turn.error.requestId } : {}),
+    },
+    steps: turn.steps ?? [],
+    environment: formatDiagnosticResult(await runDiagnostics()),
+  });
+  try {
+    await navigator.clipboard.writeText(text);
+    ElMessage.success({ message: '已复制（含完整输入输出，可能包含简历/消息原文）', duration: 4000 });
+  } catch {
+    ElMessage.warning('复制失败，请手动选择文本复制');
+  }
+}
+
+/**
  * 步骤输出的简短摘要。失败与被拒的步骤要能一眼看出。
  * 优先使用 humanizeStepOutput 注入的 humanText，不暴露错误码。
  */
@@ -301,6 +334,11 @@ function stepSummary(output: unknown): { text: string; type: 'success' | 'warnin
   }
   if (record.ok === false) return { text: String(record.message ?? '失败').slice(0, 60), type: 'danger' };
   if (Array.isArray(record.entries)) return { text: `快照 ${record.entries.length} 个元素`, type: 'success' };
+  if (typeof record.satisfied === 'boolean') {
+    return record.satisfied
+      ? { text: `等待完成（${record.observed ?? ''}）`.slice(0, 60), type: 'success' }
+      : { text: `等待超时（${record.observed ?? ''}）`.slice(0, 60), type: 'warning' };
+  }
   if (record.passed === true) return { text: '验证通过', type: 'success' };
   if (record.passed === false) return { text: '验证未通过', type: 'danger' };
   return { text: String(record.message ?? '完成').slice(0, 60), type: 'success' };
@@ -405,31 +443,6 @@ function stepSummary(output: unknown): { text: string; type: 'success' | 'warnin
         </el-tooltip>
       </div>
 
-      <!-- 持久化文件管理：上传/查看/删除文本文件 -->
-      <div class="file-section">
-        <div class="file-section-header">
-          <el-text size="small" tag="b">文件</el-text>
-          <el-button :icon="Upload" link size="small" @click="triggerFilePicker">上传文件</el-button>
-          <input
-            ref="fileInputRef"
-            type="file"
-            multiple
-            accept=".txt,.csv,.json,.md,.xml,.html,.js,.ts,.py,.yaml,.yml,text/*"
-            style="display: none"
-            @change="handleFileSelect"
-          />
-        </div>
-        <div v-if="storedFiles.length" class="stored-files">
-          <div v-for="file in storedFiles" :key="file.name" class="stored-file-item">
-            <el-icon class="stored-file-icon"><FolderOpened /></el-icon>
-            <el-text size="small" class="stored-file-name">{{ file.name }}</el-text>
-            <el-text size="small" type="info">{{ (file.size / 1024).toFixed(1) }}KB</el-text>
-            <el-button :icon="Delete" link size="small" @click="handleDeleteStoredFile(file.name)" />
-          </div>
-        </div>
-        <el-text v-else size="small" type="info">未上传文件。上传后 agent 可读取和加工，跨会话可用。</el-text>
-      </div>
-
       <!-- 对话记录：多轮上下文让「点第三条结果」这类指代成立 -->
       <div v-if="turns.length" class="conversation">
         <div v-for="(turn, index) in turns" :key="index" :class="['turn', `turn-${turn.role}`]">
@@ -437,6 +450,15 @@ function stepSummary(output: unknown): { text: string; type: 'success' | 'warnin
             <el-text size="small" tag="b">{{ turn.role === 'user' ? '你' : turn.role === 'agent' ? 'Agent' : '错误' }}</el-text>
             <el-button v-if="turn.text" link size="small" class="copy-btn" @click="copyTurnText(turn.text, index)">
               <el-icon><CopyDocument /></el-icon>
+            </el-button>
+            <el-button
+              v-if="turn.role === 'error'"
+              link
+              size="small"
+              class="copy-btn"
+              @click="copyDiagnosticLog(turn)"
+            >
+              复制诊断日志
             </el-button>
           </div>
           <div v-if="turn.role === 'agent'" class="turn-text markdown-body" v-html="renderMarkdown(turn.text)"></div>
@@ -467,15 +489,95 @@ function stepSummary(output: unknown): { text: string; type: 'success' | 'warnin
         </div>
       </div>
 
-      <el-input
-        v-model="instruction"
-        type="textarea"
-        :rows="3"
-        resize="none"
-        :disabled="isBusy"
-        placeholder="用一句话描述你想做什么，例如：在搜索框输入 Vue3 并搜索"
-        @keydown.enter.meta.prevent="requestPlan"
+      <!-- 已勾选带入上下文的附件 -->
+      <div v-if="attachments.selectedCount() > 0" class="attached-chips">
+        <el-tag
+          v-for="file in allFiles.filter((f) => attachments.isSelected(f.id))"
+          :key="file.id"
+          size="small"
+          closable
+          @close="attachments.toggle(file.id)"
+        >
+          <el-icon v-if="file.isImage" class="chip-icon"><Picture /></el-icon>
+          <el-icon v-else class="chip-icon"><Document /></el-icon>
+          {{ file.filename }}
+        </el-tag>
+      </div>
+
+      <div class="input-row">
+        <el-button :icon="Paperclip" link @click="openFileManager" title="附件与文件管理" />
+        <el-input
+          v-model="instruction"
+          type="textarea"
+          :rows="3"
+          resize="none"
+          :disabled="isBusy"
+          placeholder="用一句话描述你想做什么，例如：在搜索框输入 Vue3 并搜索"
+          @keydown.enter.meta.prevent="requestPlan"
+        />
+      </div>
+      <input
+        ref="fileInputRef"
+        type="file"
+        multiple
+        accept=".txt,.csv,.json,.md,.xml,.html,.js,.ts,.py,.yaml,.yml,text/*"
+        style="display: none"
+        @change="handleFileSelect"
       />
+
+      <!-- 文件管理弹窗 -->
+      <el-dialog v-model="fileManagerVisible" title="附件与文件管理" width="640px" append-to-body>
+        <template #header>
+          <div class="fm-header">
+            <span>附件与文件管理</span>
+            <el-button :icon="Upload" link size="small" @click="triggerFilePicker">上传文件</el-button>
+          </div>
+        </template>
+        <div v-if="!allFiles.length" class="fm-empty">
+          还没有文件。agent 生成的截图、导出的文件会出现在这里；也可以点右上角上传。
+        </div>
+        <div v-else class="fm-list">
+          <div v-for="file in allFiles" :key="file.id" class="fm-item">
+            <el-checkbox
+              :model-value="attachments.isSelected(file.id)"
+              @change="attachments.toggle(file.id)"
+            >
+              <span class="fm-name">
+                <el-icon v-if="file.isImage" class="fm-icon"><Picture /></el-icon>
+                <el-icon v-else class="fm-icon"><Document /></el-icon>
+                {{ file.filename }}
+              </span>
+            </el-checkbox>
+            <div class="fm-meta">
+              <el-text size="small" type="info">
+                {{ file.isImage ? `${file.width}x${file.height} · ` : '' }}{{ (file.size / 1024).toFixed(1) }}KB
+              </el-text>
+              <el-button
+                v-if="file.isImage"
+                link size="small"
+                @click="previewScreenshot(file)"
+              >预览</el-button>
+              <el-button link size="small" @click="downloadFile(file)">下载</el-button>
+              <el-button :icon="Delete" link size="small" @click="handleRemoveFile(file.id)" />
+            </div>
+          </div>
+        </div>
+        <template #footer>
+          <el-button @click="handleClearAllFiles" plain type="danger" size="small">清空全部</el-button>
+          <el-button type="primary" @click="fileManagerVisible = false">完成</el-button>
+        </template>
+      </el-dialog>
+
+      <!-- 截图大图预览 -->
+      <el-dialog
+        v-model="screenshotPreviewVisible"
+        title="截图预览"
+        width="95%"
+        :close-on-click-modal="true"
+        append-to-body
+      >
+        <img v-if="previewingScreenshot" :src="previewingScreenshot.url" style="width: 100%; max-height: 70vh; object-fit: contain" />
+      </el-dialog>
 
       <el-space wrap>
         <el-button type="primary" :loading="isPlanning" :disabled="!canSubmit" @click="requestPlan">
@@ -549,48 +651,6 @@ function stepSummary(output: unknown): { text: string; type: 'success' | 'warnin
           <el-button @click="rejectPlan">知道了</el-button>
         </div>
       </el-card>
-
-      <!-- agent 生成的文件和截图 -->
-      <div v-if="generatedFiles.length" class="generated-files">
-        <div v-for="file in generatedFiles" :key="file.id" :class="file.isImage ? 'screenshot-card' : 'file-card'">
-          <!-- 截图：缩略图 + 查看大图 + 下载 -->
-          <template v-if="file.isImage">
-            <img
-              :src="file.url"
-              class="screenshot-thumb"
-              :alt="file.filename"
-              @click="previewScreenshot(file)"
-            />
-            <div class="screenshot-info">
-              <el-text size="small" tag="b">{{ file.filename }}</el-text>
-              <el-text size="small" type="info">{{ file.width }}x{{ file.height }} · {{ (file.size / 1024).toFixed(0) }}KB</el-text>
-            </div>
-            <el-button type="primary" size="small" plain @click="downloadFile(file)">下载</el-button>
-            <el-button :icon="Delete" link size="small" @click="handleRemoveFile(file.id)" />
-          </template>
-          <!-- 普通文件：下载按钮 -->
-          <template v-else>
-            <el-icon class="file-icon"><Download /></el-icon>
-            <div class="file-info">
-              <el-text size="small" tag="b">{{ file.filename }}</el-text>
-              <el-text size="small" type="info">{{ (file.size / 1024).toFixed(1) }}KB · {{ file.format.toUpperCase() }}</el-text>
-            </div>
-            <el-button type="primary" size="small" plain @click="downloadFile(file)">下载</el-button>
-            <el-button :icon="Delete" link size="small" @click="handleRemoveFile(file.id)" />
-          </template>
-        </div>
-      </div>
-
-      <!-- 截图大图预览 -->
-      <el-dialog
-        v-model="screenshotPreviewVisible"
-        title="截图预览"
-        width="95%"
-        :close-on-click-modal="true"
-        append-to-body
-      >
-        <img v-if="previewingScreenshot" :src="previewingScreenshot.url" style="width: 100%; max-height: 70vh; object-fit: contain" />
-      </el-dialog>
 
       <el-alert
         v-if="runError && runState === 'failed'"
@@ -946,104 +1006,70 @@ function stepSummary(output: unknown): { text: string; type: 'success' | 'warnin
   margin-top: 12px;
 }
 
-.generated-files {
+.input-row {
   display: flex;
-  flex-direction: column;
+  align-items: flex-end;
   gap: 6px;
+}
+.input-row .el-button {
   flex-shrink: 0;
 }
 
-.file-card {
+.attached-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+.chip-icon {
+  margin-right: 2px;
+  vertical-align: -2px;
+}
+
+.fm-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-  background: var(--el-color-success-light-9);
-  border: 1px solid var(--el-color-success-light-5);
-  border-radius: 6px;
+  justify-content: space-between;
 }
-
-.file-icon {
-  color: var(--el-color-success);
-  font-size: 18px;
-  flex-shrink: 0;
+.fm-empty {
+  padding: 24px 0;
+  text-align: center;
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
 }
-
-.file-info {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.screenshot-card {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-  background: var(--el-color-success-light-9);
-  border: 1px solid var(--el-color-success-light-5);
-  border-radius: 6px;
-}
-
-.screenshot-thumb {
-  width: 48px;
-  height: 48px;
-  object-fit: cover;
-  border-radius: 4px;
-  cursor: pointer;
-  flex-shrink: 0;
-  border: 1px solid var(--el-border-color);
-}
-
-.screenshot-thumb:hover {
-  opacity: 0.8;
-}
-
-.screenshot-info {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.file-section {
-  flex-shrink: 0;
-  padding: 8px 10px;
-  background: var(--el-fill-color-light);
-  border-radius: 6px;
-}
-
-.file-section-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 4px;
-}
-
-.stored-files {
+.fm-list {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  max-height: 50vh;
+  overflow-y: auto;
 }
-
-.stored-file-item {
+.fm-item {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 4px;
+  border-radius: 4px;
+}
+.fm-item:hover {
+  background: var(--el-fill-color-light);
+}
+.fm-name {
+  display: inline-flex;
+  align-items: center;
   gap: 6px;
-  padding: 2px 0;
-}
-
-.stored-file-icon {
-  color: var(--el-color-info);
-  font-size: 14px;
-  flex-shrink: 0;
-}
-
-.stored-file-name {
-  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.fm-icon {
+  flex-shrink: 0;
+}
+.fm-meta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
 }
 </style>

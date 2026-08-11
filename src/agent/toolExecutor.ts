@@ -6,6 +6,7 @@ import type {
   RefResolution,
   VerifyRequest,
   VerifyResult,
+  WaitForRequest,
 } from '../types/cdp';
 import { evaluateNetworkDimension } from '../services/networkVerifier';
 import { MessageType } from '../types/messages';
@@ -24,6 +25,8 @@ export const TOOL_ALLOWLIST = [
   'browser_read_page',
   'browser_locate_element',
   'browser_click',
+  'browser_hover',
+  'browser_wait_for',
   'browser_input_text',
   'browser_press_key',
   'browser_scroll',
@@ -42,6 +45,10 @@ export const READ_ONLY_TOOLS: readonly ToolName[] = [
   'browser_locate_element',
   'browser_verify',
   'browser_screenshot',
+  // hover 只移动鼠标，不能提交/导航/输入。若要审批，每次探索下拉都会弹窗，
+  // 反而训练用户盲点「同意」。
+  'browser_hover',
+  'browser_wait_for',
   'browser_save_file',
   'browser_read_file',
   'browser_write_file',
@@ -129,6 +136,38 @@ function requireString(input: Record<string, unknown>, key: string): Validated<s
   return { ok: true, value };
 }
 
+/**
+ * 校验并归一化 browser_wait_for 的入参。
+ *
+ * 抽成纯函数是为了可测：扩展的测试跑在 node 环境，碰不到 DOM 与 chrome。
+ */
+export function normalizeWaitFor(input: Record<string, unknown>): Validated<WaitForRequest> {
+  const condition = input.condition;
+  if (condition !== 'appear' && condition !== 'disappear' && condition !== 'stable') {
+    return invalid('condition 必须是 appear / disappear / stable 之一。');
+  }
+
+  const selector = typeof input.selector === 'string' ? input.selector.trim() : '';
+  if (condition !== 'stable' && !selector) {
+    return invalid(`condition=${condition} 需要提供 selector。`);
+  }
+
+  return {
+    ok: true,
+    value: {
+      condition,
+      ...(selector ? { selector } : {}),
+      ...(typeof input.timeoutMs === 'number' ? { timeoutMs: clamp(input.timeoutMs, 100, 15_000) } : {}),
+      ...(typeof input.stableMs === 'number' ? { stableMs: clamp(input.stableMs, 100, 3_000) } : {}),
+    },
+  };
+}
+
+/** 把数值夹到区间内。模型给出越界值时纠正而不是报错。 */
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, Math.round(value)));
+}
+
 /** 消息发送器。抽成参数便于测试时替换，也避免这里直接依赖 chrome。 */
 export type MessageSender = <T>(message: ExtensionRequest) => Promise<T>;
 
@@ -202,17 +241,41 @@ export async function executeTool(
         });
       }
 
+      case 'browser_hover': {
+        const target = await resolveTargetPoint(input, options);
+        if (!target.ok) return target;
+        const label = typeof input.label === 'string' ? input.label : target.value.label;
+        return await send({
+          type: MessageType.CdpHover,
+          tabId,
+          x: target.value.x,
+          y: target.value.y,
+          ...(label ? { label } : {}),
+          ...(typeof input.settleMs === 'number' ? { settleMs: input.settleMs } : {}),
+        });
+      }
+
+      case 'browser_wait_for': {
+        const request = normalizeWaitFor(input);
+        if (!request.ok) return request;
+        return await send({ type: MessageType.ContentWaitFor, tabId, request: request.value });
+      }
+
       case 'browser_input_text': {
         const target = await resolveTargetPoint(input, options);
         if (!target.ok) return target;
         const text = requireString(input, 'text');
         if (!text.ok) return text;
-        // clearFirst：先全选再让 insertText 覆盖。不这样做会追加到已有内容后面。
-        if (input.clearFirst === true) {
-          await send({ type: MessageType.CdpClick, tabId, x: target.value.x, y: target.value.y });
-          await send({ type: MessageType.CdpPressKey, tabId, key: 'Backspace', modifiers: ['Meta'] });
-        }
-        return await send({ type: MessageType.CdpInputText, tabId, x: target.value.x, y: target.value.y, text: text.value });
+        // clearFirst 交给 background 在同一次消息里处理：清空依赖「焦点已建立」的选区，
+        // 若在这里先发一条清空消息，紧随其后的输入消息会再点击一次，把选区冲掉。
+        return await send({
+          type: MessageType.CdpInputText,
+          tabId,
+          x: target.value.x,
+          y: target.value.y,
+          text: text.value,
+          ...(input.clearFirst === true ? { clearFirst: true } : {}),
+        });
       }
 
       case 'browser_press_key': {
@@ -255,8 +318,12 @@ export async function executeTool(
         const { generateScreenshot } = await import('../services/exportService');
         const format = (input.format === 'jpeg' ? 'jpeg' : 'png') as 'png' | 'jpeg';
         const screenshot = generateScreenshot(shot.dataUrl, format, shot.width, shot.height);
+        // 绝不把 base64 返回给模型：一张截图约 4 万 token，会挤爆上下文窗口，
+        // 导致模型输出退化成畸形字符串（曾表现为工具名被污染后整轮中断）。
+        // base64 已存入 generatedFiles 供 UI 使用，模型只需要知道截图存在。
         return {
-          ...shot,
+          width: shot.width,
+          height: shot.height,
           screenshotId: screenshot.id,
           message: `截图已保存（${shot.width}x${shot.height}），用户可在对话区域查看和下载。`,
         };
@@ -276,7 +343,7 @@ export async function executeTool(
         const file = generateFile(filename, format as 'txt' | 'csv' | 'xlsx' | 'json', content);
         return {
           ok: true,
-          message: `已生成文件 ${file.filename}（${(file.size / 1024).toFixed(1)}KB）。用户可在对话区域点击下载。`,
+          message: `已生成文件 ${file.filename}（${(file.size / 1024).toFixed(1)}KB）。在最终回复里用 markdown 链接 [${file.filename}](${file.url}) 给出下载；如果链接不可用，告诉用户点输入框旁的附件按钮下载。`,
           fileId: file.id,
           filename: file.filename,
         };
@@ -288,7 +355,7 @@ export async function executeTool(
         if (typeof name !== 'string' || !name.trim()) {
           return invalid('缺少文件名（name 字段）。');
         }
-        const { readFile } = await import('../services/fileStore');
+        const { readFile } = await import('../services/exportService');
         const file = await readFile(name);
         if (!file) {
           return {
@@ -323,7 +390,7 @@ export async function executeTool(
         if (typeof content !== 'string') {
           return invalid('缺少文件内容（content 字段，必须是字符串）。');
         }
-        const { writeFile } = await import('../services/fileStore');
+        const { writeFile } = await import('../services/exportService');
         const file = await writeFile(name, content);
         return {
           ok: true,

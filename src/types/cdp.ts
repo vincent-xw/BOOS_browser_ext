@@ -40,6 +40,14 @@ export interface SnapshotEntry {
   disabled?: boolean;
   /** 输入类元素的当前值，便于模型判断是否需要先清空。 */
   value?: string;
+  /** 最近的、本身也在快照里的祖先 ref。扁平列表靠它表达层级，比嵌套 JSON 省 token。 */
+  parent?: number;
+  /** aria-expanded 为真。配合 inPopup 让模型判断下拉是开还是关。 */
+  expanded?: boolean;
+  /** 位于弹层/浮层容器内。浮层存在本身就说明下拉已展开。 */
+  inPopup?: boolean;
+  /** 仅靠启发式识别（cursor:pointer 等），未命中显式可交互选择器，可能不可点。 */
+  soft?: boolean;
 }
 
 /** 页面快照。 */
@@ -89,6 +97,26 @@ export interface LocateResult {
   /** 全部未命中时列出已尝试的选择器，便于用户调整配置。 */
   triedSelectors?: string[];
   message?: string;
+}
+
+/** 等待条件。appear / disappear 需要 selector；stable 等 DOM 停止变化。 */
+export type WaitForCondition = 'appear' | 'disappear' | 'stable';
+
+/** 等待请求。 */
+export interface WaitForRequest {
+  condition: WaitForCondition;
+  selector?: string;
+  timeoutMs?: number;
+  /** stable 条件下判定「不再变化」的静默时长。 */
+  stableMs?: number;
+}
+
+/** 等待结果。超时不算错误，satisfied=false 让模型据此改变策略。 */
+export interface WaitForResult {
+  satisfied: boolean;
+  waitedMs: number;
+  condition: WaitForCondition;
+  observed: string;
 }
 
 /** 验证维度。 */
@@ -187,3 +215,9 @@ export const DEFAULT_VERIFY_TIMEOUT_MS = 5000;
 
 /** 验证轮询间隔。 */
 export const VERIFY_POLL_INTERVAL_MS = 120;
+
+/** browser_wait_for 的默认等待上限。 */
+export const DEFAULT_WAIT_TIMEOUT_MS = 5000;
+
+/** stable 条件下判定「不再变化」的默认静默时长。 */
+export const DEFAULT_STABLE_MS = 500;

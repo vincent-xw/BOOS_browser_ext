@@ -2,7 +2,7 @@ import { defineContentScript } from 'wxt/utils/define-content-script';
 
 import { MessageType } from '../src/types/messages';
 import type { ExtensionRequest, MessageResponse } from '../src/types/messages';
-import { captureBaseline, clearRefRegistry, locateElement, readPageSnapshot, resolveRef, snapshotInteractive, verify } from '../src/services/domLocator';
+import { captureBaseline, clearRefRegistry, locateElement, readPageSnapshot, resolveRef, snapshotInteractive, verify, waitFor } from '../src/services/domLocator';
 
 /**
  * content script：只读。
@@ -64,6 +64,20 @@ export default defineContentScript({
                 ok: false,
                 code: 'INVALID_INPUT',
                 message: '验证执行失败',
+                details: error instanceof Error ? error.message : String(error),
+              });
+            });
+          return true;
+
+        case MessageType.ContentWaitFor:
+          // 异步分支：内部轮询/监听 mutation，必须 return true 保持 sendResponse 通道打开。
+          waitFor(message.request)
+            .then((result) => respond({ ok: true, data: result }))
+            .catch((error: unknown) => {
+              respond({
+                ok: false,
+                code: 'INVALID_INPUT',
+                message: '等待执行失败',
                 details: error instanceof Error ? error.message : String(error),
               });
             });

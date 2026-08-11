@@ -62,6 +62,17 @@ export default defineBackground(() => {
       };
     },
 
+    [MessageType.CdpHover]: async (message) => {
+      await requireWritable(message.tabId);
+      await cdp.hover(message.x, message.y);
+      // 悬停后等浮层渲染：不等的话紧随其后的快照会拍到菜单出现之前的状态。
+      await new Promise((resolve) => setTimeout(resolve, message.settleMs ?? 300));
+      return {
+        ok: true,
+        message: `已悬停在 (${message.x}, ${message.y})${message.label ? `：${message.label}` : ''}`,
+      };
+    },
+
     [MessageType.CdpInputText]: async (message) => {
       await requireWritable(message.tabId);
       const beforeUrl = await currentTabUrl(message.tabId);
@@ -71,9 +82,23 @@ export default defineBackground(() => {
       if (!focus.focused) {
         return { ok: false, message: `点击输入框后焦点未落在可编辑元素上（当前焦点：${focus.activeTag}），未写入文本。`, focused: false };
       }
+      // 清空必须在确认焦点之后、insertText 之前，且和输入在同一次消息里完成：
+      // 拆成两次消息会让「点击」重新落一次光标，把选区冲掉。
+      if (message.clearFirst) await cdp.selectAll();
       await cdp.insertText(message.text);
       const after = await readFocusState(message.tabId);
       const navigation = await detectNavigation(message.tabId, beforeUrl);
+      // 回读实际值并校验：清空+输入是「预期值应完全等于 text」的唯一场景，
+      // 不一致说明选区没生效（曾出现拼接成 2026-2026-08-2707-27），必须让模型知道。
+      if (message.clearFirst && after.value !== undefined && after.value !== message.text) {
+        return {
+          ok: false,
+          message: `清空后写入的实际值与预期不一致：预期「${message.text}」，实际「${after.value}」。输入框可能未被清空，请重新定位后再试。`,
+          focused: true,
+          actualValue: after.value,
+          ...(navigation ? { navigation } : {}),
+        };
+      }
       return {
         ok: true,
         message: '文本已通过 Input.insertText 写入。',
@@ -149,6 +174,7 @@ export default defineBackground(() => {
       } satisfies LocateResult;
     },
     [MessageType.ContentVerify]: (message) => forwardToContent(message.tabId, message),
+    [MessageType.ContentWaitFor]: (message) => forwardToContent(message.tabId, message),
     [MessageType.ContentReadPage]: async (message) => {
       const outcomes = await broadcastToFrames<PageSnapshot>(message.tabId, message);
       const best = pickBestOutcome(outcomes, scorePageSnapshot);

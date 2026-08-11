@@ -1,4 +1,5 @@
 import type { StepEvent } from '../agent/agentClient';
+import type { OperationError } from '../types/page-io';
 
 /**
  * 自由指令的会话存储。
@@ -16,6 +17,8 @@ export interface ConversationTurn {
   timestamp: string;
   /** 该轮执行的步骤，仅 agent 轮次有。 */
   steps?: StepEvent[];
+  /** 出错详情，仅 error 轮次有。持久化它，隔一段时间再复制诊断日志仍拿得到 requestId。 */
+  error?: OperationError;
 }
 
 /** 一个会话。 */

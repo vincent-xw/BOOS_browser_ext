@@ -5,7 +5,7 @@
  * 没有集中定义就会退化成一长串 if (message.type === ...)。
  */
 
-import type { ElementLocator, LocateResult, ObservedRequest, VerifyRequest, VerifyResult } from './cdp';
+import type { ElementLocator, LocateResult, ObservedRequest, VerifyRequest, VerifyResult, WaitForRequest } from './cdp';
 
 /** 消息类型常量。前缀统一为 BOOS_，避免与页面自身或其他扩展的消息冲突。 */
 export const MessageType = {
@@ -16,6 +16,8 @@ export const MessageType = {
 
   /** CDP 写动作。 */
   CdpClick: 'BOOS_CDP_CLICK',
+  /** 悬停：只移动鼠标不点击，用于展开 hover 才出现的菜单。 */
+  CdpHover: 'BOOS_CDP_HOVER',
   CdpInputText: 'BOOS_CDP_INPUT_TEXT',
   CdpPressKey: 'BOOS_CDP_PRESS_KEY',
   CdpScroll: 'BOOS_CDP_SCROLL',
@@ -35,6 +37,8 @@ export const MessageType = {
   /** 可交互元素快照与 ref 解析：自由指令的定位主路径。 */
   ContentSnapshot: 'BOOS_CONTENT_SNAPSHOT',
   ContentResolveRef: 'BOOS_CONTENT_RESOLVE_REF',
+  /** 等待页面达到某状态：元素出现/消失，或 DOM 停止变化。 */
+  ContentWaitFor: 'BOOS_CONTENT_WAIT_FOR',
 } as const;
 
 export type MessageTypeValue = (typeof MessageType)[keyof typeof MessageType];
@@ -68,7 +72,8 @@ export type ExtensionRequest =
   | { type: typeof MessageType.CdpDetach; tabId: number }
   | { type: typeof MessageType.CdpSessionState; tabId: number }
   | { type: typeof MessageType.CdpClick; tabId: number; x: number; y: number; label?: string }
-  | { type: typeof MessageType.CdpInputText; tabId: number; x: number; y: number; text: string }
+  | { type: typeof MessageType.CdpHover; tabId: number; x: number; y: number; label?: string; settleMs?: number }
+  | { type: typeof MessageType.CdpInputText; tabId: number; x: number; y: number; text: string; clearFirst?: boolean }
   | { type: typeof MessageType.CdpPressKey; tabId: number; key: PressableKey; modifiers?: KeyModifier[] }
   | { type: typeof MessageType.CdpScroll; tabId: number; deltaY: number; x?: number; y?: number }
   | { type: typeof MessageType.CdpScreenshot; tabId: number; format?: 'png' | 'jpeg' }
@@ -80,7 +85,8 @@ export type ExtensionRequest =
   | { type: typeof MessageType.ContentVerify; tabId: number; request: VerifyRequest }
   | { type: typeof MessageType.ContentReadPage; tabId: number }
   | { type: typeof MessageType.ContentSnapshot; tabId: number }
-  | { type: typeof MessageType.ContentResolveRef; tabId: number; ref: number };
+  | { type: typeof MessageType.ContentResolveRef; tabId: number; ref: number }
+  | { type: typeof MessageType.ContentWaitFor; tabId: number; request: WaitForRequest };
 
 /** 统一响应信封。失败一律带 code 与可读 message，不抛裸异常给调用方。 */
 export type MessageResponse<T = unknown> =

@@ -45,6 +45,18 @@ export const TOOLS_CATALOG: readonly ToolDescription[] = [
     category: 'write',
   },
   {
+    name: 'browser_hover',
+    title: '悬停',
+    description: '把鼠标移到某个元素上但不点击，用于展开「鼠标移上去才出现」的菜单。不会提交或跳转，所以不需要你批准。',
+    category: 'read',
+  },
+  {
+    name: 'browser_wait_for',
+    title: '等待页面变化',
+    description: '等某个元素出现或消失，或等页面停止变化。下拉展开有动画、内容要等接口返回时会用到，避免模型在页面还没准备好时就去操作。',
+    category: 'read',
+  },
+  {
     name: 'browser_input_text',
     title: '输入文本',
     description: '在输入框中写入文字（支持中文）。会先点击输入框获取焦点，再写入。这是写操作，需要你批准。',

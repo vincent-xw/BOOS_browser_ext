@@ -18,6 +18,7 @@ import {
 import type { ConversationTurn, StoredSession } from '../services/freeFormSessionStore';
 import { isUrlAllowed } from '../services/urlAllowlist';
 import { settingsService } from '../services/settingsService';
+import { useFileAttachments } from './useFileAttachments';
 import { MessageType } from '../types/messages';
 import type { OperationError, OperationState } from '../types/page-io';
 
@@ -79,6 +80,8 @@ export function useFreeFormController() {
 
   const settings = ref(settingsService.load().normalized);
   let abortController: AbortController | null = null;
+
+  const attachments = useFileAttachments();
 
   /** 计划阶段的输出。非空时 UI 展示计划等待用户确认。 */
   const pendingPlan = ref<TaskPlan | null>(null);
@@ -188,11 +191,16 @@ export function useFreeFormController() {
         // 快照失败不阻断计划 -- 模型仍可基于指令评估，只是看不到当前页面。
       }
 
+      const fileList = attachments.buildFileList();
+      const context: Record<string, unknown> = {};
+      if (snapshot) context.snapshot = snapshot;
+      if (fileList.length) context.fileList = fileList;
+
       const result = await runAgent(
         toBffConfig(settings.value),
         sessionId.value,
         text,
-        snapshot ? { snapshot } : {},
+        context,
         'planning',
         true, // skipTools: 计划阶段不让模型调工具
       );
@@ -271,6 +279,10 @@ export function useFreeFormController() {
     }
 
     try {
+      const fileList = attachments.buildFileList();
+      const context: Record<string, unknown> = {};
+      if (fileList.length) context.fileList = fileList;
+
       const result = await runAgentSession(text, {
         config: toBffConfig(settings.value),
         sessionId: sessionId.value,
@@ -280,6 +292,7 @@ export function useFreeFormController() {
         currentUrl: currentUrl.value,
         maxSteps: settings.value.advanced.maxSteps,
         signal: abortController.signal,
+        context,
         onStep: (event) => {
           currentSteps.value = [...currentSteps.value, { ...event, output: humanizeStepOutput(event.output) }];
         },
@@ -290,9 +303,16 @@ export function useFreeFormController() {
       void generateSessionTitle();
     } catch (error) {
       const message = error instanceof BffError ? error.message : error instanceof Error ? error.message : String(error);
+      const bff = error instanceof BffError ? error : null;
       runState.value = 'failed';
-      runError.value = { code: 'EXECUTION_FAILED', message };
-      appendTurn('error', message, currentSteps.value);
+      // 保留 BFF 原码与 requestId：它们是和服务端日志对上的唯一线索，诊断日志要用。
+      runError.value = {
+        code: 'EXECUTION_FAILED',
+        message,
+        ...(bff?.code ? { bffCode: bff.code } : {}),
+        ...(bff?.requestId ? { requestId: bff.requestId } : {}),
+      };
+      appendTurn('error', message, currentSteps.value, runError.value);
     } finally {
       // 任务结束即释放调试连接，调试横幅不该长期挂在页面上。
       await cdpActionService.detach();
@@ -300,10 +320,16 @@ export function useFreeFormController() {
     }
   }
 
-  function appendTurn(role: ConversationTurn['role'], text: string, steps?: StepEvent[]): void {
+  function appendTurn(role: ConversationTurn['role'], text: string, steps?: StepEvent[], error?: OperationError): void {
     turns.value = [
       ...turns.value,
-      { role, text, timestamp: new Date().toISOString(), ...(steps && steps.length ? { steps: [...steps] } : {}) },
+      {
+        role,
+        text,
+        timestamp: new Date().toISOString(),
+        ...(steps && steps.length ? { steps: [...steps] } : {}),
+        ...(error ? { error } : {}),
+      },
     ];
     // 每轮都落库：sessionId 是切回旧会话的唯一凭据，丢了它 BFF 侧的上下文就不可达了。
     void saveSession({ id: sessionId.value, turns: turns.value });
@@ -430,6 +456,7 @@ export function useFreeFormController() {
     refreshPageContext,
     summarizeAction,
     MessageType,
+    attachments,
   };
 }
 

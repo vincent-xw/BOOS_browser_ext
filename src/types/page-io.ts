@@ -24,6 +24,10 @@ export interface OperationError {
     | 'TOOL_EXECUTION_FAILED';
   message: string;
   details?: string;
+  /** BFF 侧原始错误码。code 是扩展侧的粗分类，排查时需要原码。 */
+  bffCode?: string;
+  /** BFF 侧日志的关联键，是把扩展报错和服务端日志对上的唯一线索。 */
+  requestId?: string;
 }
 
 /** ServiceResult 的 provider 字段。当前唯一的执行通道是 CDP 调试器。 */
