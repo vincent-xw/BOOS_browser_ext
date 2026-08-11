@@ -61,6 +61,8 @@ export interface PageSnapshotResult {
   truncated?: number;
   /** 快照来源 frame 的可读标识，仅用于日志排查。frame 归属以 SnapshotEntry.frameId 为准。 */
   sourceFrame?: string;
+  /** 有 frame 未返回内容时的提示。缺席的元素与「不存在」无法区分，必须显式告知模型。 */
+  warning?: string;
 }
 
 /** 按 ref 取当前坐标的结果。 */
@@ -201,6 +203,8 @@ export interface PageSnapshot {
   title: string;
   url: string;
   bodyPreview: string;
+  /** 有 frame 未返回内容时的提示，避免把「读不到」当成「页面上没有」。 */
+  warning?: string;
 }
 
 /** CDP Network 域观测到的请求。用于验证写操作是否真的产生了副作用。 */
