@@ -28,7 +28,7 @@ function renderMarkdown(text: string): string {
   return DOMPurify.sanitize(raw);
 }
 
-const props = defineProps<{ skillToApply?: Skill | null }>();
+const props = defineProps<{ skillToApply?: Skill | null; settingsSaved?: number }>();
 const emit = defineEmits<{ (event: 'skillApplied'): void; (event: 'saveSkill'): void }>();
 
 const {
@@ -59,6 +59,7 @@ const {
   rejectPlan,
   submitInstruction,
   stop,
+  isStopping,
   startNewSession,
   switchSession,
   removeSession,
@@ -173,6 +174,11 @@ function refreshAllFiles() {
 
 // 每步执行后检查是否有新文件生成（browser_screenshot / browser_save_file）。
 watch(currentSteps, () => refreshAllFiles(), { deep: true });
+
+// 设置保存后刷新页面上下文（白名单、授权状态等）。
+watch(() => props.settingsSaved, () => {
+  if (typeof props.settingsSaved === 'number') void refreshPageContext();
+});
 
 /** 附件管理弹窗。 */
 const fileManagerVisible = ref(false);
@@ -343,6 +349,19 @@ function stepSummary(output: unknown): { text: string; type: 'success' | 'warnin
   if (record.passed === false) return { text: '验证未通过', type: 'danger' };
   return { text: String(record.message ?? '完成').slice(0, 60), type: 'success' };
 }
+
+/** 复制步骤详情到剪贴板，方便排查。 */
+function copyStepDetail(step: { toolName: string; input: unknown; output: unknown }) {
+  const lines: string[] = [];
+  lines.push(`工具：${step.toolName}`);
+  lines.push(`入参：${JSON.stringify(step.input, null, 2)}`);
+  lines.push(`出参：${JSON.stringify(step.output, null, 2)}`);
+  navigator.clipboard.writeText(lines.join('\n')).then(() => {
+    ElMessage.success({ message: '步骤详情已复制', duration: 1500 });
+  }).catch(() => {
+    ElMessage.warning('复制失败，请手动选择文本复制');
+  });
+}
 </script>
 
 <template>
@@ -471,6 +490,7 @@ function stepSummary(output: unknown): { text: string; type: 'success' | 'warnin
                 <el-tag size="small" :type="stepSummary(step.output).type" effect="plain">
                   {{ stepSummary(step.output).text }}
                 </el-tag>
+                <el-button :icon="CopyDocument" link size="small" class="step-copy" @click="copyStepDetail(step)" />
               </div>
             </el-collapse-item>
           </el-collapse>
@@ -486,6 +506,7 @@ function stepSummary(output: unknown): { text: string; type: 'success' | 'warnin
           <el-tag size="small" :type="stepSummary(step.output).type" effect="plain">
             {{ stepSummary(step.output).text }}
           </el-tag>
+          <el-button :icon="CopyDocument" link size="small" class="step-copy" @click="copyStepDetail(step)" />
         </div>
       </div>
 
@@ -504,18 +525,20 @@ function stepSummary(output: unknown): { text: string; type: 'success' | 'warnin
         </el-tag>
       </div>
 
-      <div class="input-row">
-        <el-button :icon="Paperclip" link @click="openFileManager" title="附件与文件管理" />
-        <el-input
-          v-model="instruction"
-          type="textarea"
-          :rows="3"
-          resize="none"
-          :disabled="isBusy"
-          placeholder="用一句话描述你想做什么，例如：在搜索框输入 Vue3 并搜索"
-          @keydown.enter.meta.prevent="requestPlan"
-        />
+      <div class="input-toolbar">
+        <el-button :icon="Paperclip" link @click="openFileManager" title="附件与文件管理">
+          {{ attachments.selectedCount() > 0 ? `附件（${attachments.selectedCount()}）` : '附件' }}
+        </el-button>
       </div>
+      <el-input
+        v-model="instruction"
+        type="textarea"
+        :rows="3"
+        resize="none"
+        :disabled="isBusy"
+        placeholder="用一句话描述你想做什么，例如：在搜索框输入 Vue3 并搜索"
+        @keydown.enter.meta.prevent="requestPlan"
+      />
       <input
         ref="fileInputRef"
         type="file"
@@ -563,7 +586,7 @@ function stepSummary(output: unknown): { text: string; type: 'success' | 'warnin
           </div>
         </div>
         <template #footer>
-          <el-button @click="handleClearAllFiles" plain type="danger" size="small">清空全部</el-button>
+          <el-button @click="handleClearAllFiles" plain type="danger">清空全部</el-button>
           <el-button type="primary" @click="fileManagerVisible = false">完成</el-button>
         </template>
       </el-dialog>
@@ -583,12 +606,12 @@ function stepSummary(output: unknown): { text: string; type: 'success' | 'warnin
         <el-button type="primary" :loading="isPlanning" :disabled="!canSubmit" @click="requestPlan">
           {{ isPlanning ? '评估中...' : '评估' }}
         </el-button>
-        <el-button v-if="isBusy && !isPlanning" type="danger" plain @click="stop">停止</el-button>
-        <el-button :icon="Star" :disabled="!canSaveSkill" plain size="small" @click="handleSaveSkill">
+        <el-button v-if="isBusy && !isPlanning" type="danger" plain :loading="isStopping" @click="stop">停止</el-button>
+        <el-button :icon="Star" :disabled="!canSaveSkill" plain @click="handleSaveSkill">
           保存为技能
         </el-button>
         <el-dropdown :disabled="!canSaveSkill" trigger="click" @command="handleExport">
-          <el-button :icon="Download" :disabled="!canSaveSkill" plain size="small">
+          <el-button :icon="Download" :disabled="!canSaveSkill" plain>
             导出
             <el-icon class="el-icon--right"><ArrowDown /></el-icon>
           </el-button>
@@ -946,8 +969,12 @@ function stepSummary(output: unknown): { text: string; type: 'success' | 'warnin
 .step-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   padding: 2px 0;
+}
+.step-copy {
+  flex-shrink: 0;
+  margin-left: auto;
 }
 
 .live-steps {
@@ -1006,13 +1033,15 @@ function stepSummary(output: unknown): { text: string; type: 'success' | 'warnin
   margin-top: 12px;
 }
 
-.input-row {
+.input-toolbar {
   display: flex;
-  align-items: flex-end;
-  gap: 6px;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
 }
-.input-row .el-button {
-  flex-shrink: 0;
+.input-toolbar .el-button {
+  margin-left: 0;
+  padding-left: 4px;
 }
 
 .attached-chips {

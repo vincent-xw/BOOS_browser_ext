@@ -102,7 +102,7 @@ function requirePoint(input: Record<string, unknown>): Validated<{ x: number; y:
 async function resolveTargetPoint(
   input: Record<string, unknown>,
   options: ToolExecutorOptions,
-): Promise<Validated<{ x: number; y: number; label?: string }>> {
+): Promise<Validated<{ x: number; y: number; label?: string; frameId?: number }>> {
   if (typeof input.ref === 'number') {
     const resolution = await options.send<RefResolution>({
       type: MessageType.ContentResolveRef,
@@ -123,7 +123,15 @@ async function resolveTargetPoint(
         message: `目标被 ${resolution.occludedBy ?? '其他元素'} 遮挡，未执行动作。请先处理遮挡。`,
       };
     }
-    return { ok: true, value: { x: resolution.x, y: resolution.y, ...(resolution.label ? { label: resolution.label } : {}) } };
+    return {
+      ok: true,
+      value: {
+        x: resolution.x,
+        y: resolution.y,
+        ...(resolution.label ? { label: resolution.label } : {}),
+        ...(typeof resolution.frameId === 'number' ? { frameId: resolution.frameId } : {}),
+      },
+    };
   }
   const point = requirePoint(input);
   if (!point.ok) return point;
@@ -275,6 +283,9 @@ export async function executeTool(
           y: target.value.y,
           text: text.value,
           ...(input.clearFirst === true ? { clearFirst: true } : {}),
+          // 焦点检查与写入后回读都必须在目标所属 frame 里做：主 frame 的
+          // activeElement 在跨 frame 场景下是 <iframe> 本身，会误判成「未获得焦点」。
+          ...(typeof target.value.frameId === 'number' ? { frameId: target.value.frameId } : {}),
         });
       }
 

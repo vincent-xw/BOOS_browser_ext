@@ -48,6 +48,8 @@ export interface SnapshotEntry {
   inPopup?: boolean;
   /** 仅靠启发式识别（cursor:pointer 等），未命中显式可交互选择器，可能不可点。 */
   soft?: boolean;
+  /** 元素所属 frame。主 frame 省略；子 frame 内的元素带上，便于排查坐标类问题。 */
+  frameId?: number;
 }
 
 /** 页面快照。 */
@@ -57,7 +59,8 @@ export interface PageSnapshotResult {
   entries: SnapshotEntry[];
   /** 超出上限被省略的元素数量。必须告知模型，否则它会以为看到了全部。 */
   truncated?: number;
-  frameId?: string;
+  /** 快照来源 frame 的可读标识，仅用于日志排查。frame 归属以 SnapshotEntry.frameId 为准。 */
+  sourceFrame?: string;
 }
 
 /** 按 ref 取当前坐标的结果。 */
@@ -72,6 +75,8 @@ export interface RefResolution {
   occludedBy?: string;
   label?: string;
   message?: string;
+  /** 元素所属 frame。动作要在这个 frame 里检查焦点、回读值。 */
+  frameId?: number;
 }
 
 /** 元素矩形，CSS 像素。 */

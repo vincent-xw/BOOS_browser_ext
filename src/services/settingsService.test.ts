@@ -119,7 +119,7 @@ describe('BFF 配置校验', () => {
   });
 
   it('默认配置含 BFF 与步数配置', () => {
-    expect(Object.keys(DEFAULT_SETTINGS.advanced).sort()).toEqual(['bffApiToken', 'bffBaseUrl', 'bffRequestTimeoutMs', 'llmMaxRetries', 'maxSteps']);
+    expect(Object.keys(DEFAULT_SETTINGS.advanced).sort()).toEqual(['approvalEnabled', 'bffApiToken', 'bffBaseUrl', 'bffRequestTimeoutMs', 'llmMaxRetries', 'maxSteps']);
   });
 
   it('默认最大步数为 50', () => {

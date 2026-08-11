@@ -604,7 +604,7 @@ export function snapshotInteractive(): PageSnapshotResult {
     title: document.title,
     entries,
     ...(skipped > 0 ? { truncated: skipped } : {}),
-    frameId: window === window.top ? 'main' : window.location.href,
+    sourceFrame: window === window.top ? 'main' : window.location.href,
   };
 }
 

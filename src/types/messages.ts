@@ -73,7 +73,7 @@ export type ExtensionRequest =
   | { type: typeof MessageType.CdpSessionState; tabId: number }
   | { type: typeof MessageType.CdpClick; tabId: number; x: number; y: number; label?: string }
   | { type: typeof MessageType.CdpHover; tabId: number; x: number; y: number; label?: string; settleMs?: number }
-  | { type: typeof MessageType.CdpInputText; tabId: number; x: number; y: number; text: string; clearFirst?: boolean }
+  | { type: typeof MessageType.CdpInputText; tabId: number; x: number; y: number; text: string; clearFirst?: boolean; frameId?: number }
   | { type: typeof MessageType.CdpPressKey; tabId: number; key: PressableKey; modifiers?: KeyModifier[] }
   | { type: typeof MessageType.CdpScroll; tabId: number; deltaY: number; x?: number; y?: number }
   | { type: typeof MessageType.CdpScreenshot; tabId: number; format?: 'png' | 'jpeg' }

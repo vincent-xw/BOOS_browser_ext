@@ -245,6 +245,20 @@ describe('ref 引用派发', () => {
     });
   });
 
+  it('输入文本把目标所属 frame 透给 background', async () => {
+    // 焦点检查必须在目标 frame 里做：主 frame 的 activeElement 是 <iframe> 本身，
+    // 只读主 frame 会把「焦点已正确落在子 frame 输入框」误判成失败，导致 iframe 页面必然写不进去。
+    const { sent, send } = refSender({ found: true, x: 844, y: 205, frameId: 357 });
+    await executeTool('browser_input_text', { ref: 2, text: '13188889253' }, { tabId: 1, send });
+    expect(sent.find((message) => message.type === MessageType.CdpInputText)).toMatchObject({ frameId: 357 });
+  });
+
+  it('主 frame 的目标不带 frameId 字段', async () => {
+    const { sent, send } = refSender({ found: true, x: 10, y: 20, frameId: 0 });
+    await executeTool('browser_input_text', { ref: 2, text: 'x' }, { tabId: 1, send });
+    expect(sent.find((message) => message.type === MessageType.CdpInputText)).toMatchObject({ frameId: 0 });
+  });
+
   it('clearFirst 会把清空折叠进写入消息，不再拆成多次消息', async () => {
     const { sent, send } = refSender({ found: true, x: 1, y: 2 });
     await executeTool('browser_input_text', { ref: 2, text: '新内容', clearFirst: true }, { tabId: 1, send });

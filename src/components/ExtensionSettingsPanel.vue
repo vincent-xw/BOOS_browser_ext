@@ -210,6 +210,13 @@ async function handleClearFiles() {
               网络错误与 5xx 自动重试，4xx 不重试
             </el-text>
           </el-form-item>
+          <el-form-item label="审批">
+            <el-switch
+              v-model="form.advanced.approvalEnabled"
+              active-text="开启审批（写操作需要你逐个批准）"
+              inactive-text="关闭审批（所有写操作自动放行）"
+            />
+          </el-form-item>
         </el-form>
       </el-card>
 

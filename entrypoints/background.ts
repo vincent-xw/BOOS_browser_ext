@@ -6,12 +6,22 @@ import type { LocateResult, PageSnapshot, PageSnapshotResult, RefResolution } fr
 import { CdpError, createCdpSessionManager, describeDetachReason } from '../src/services/cdpSessionManager';
 import { mergeTriedSelectors, pickBestOutcome, scoreLocateResult, scorePageSnapshot } from '../src/services/frameAggregator';
 import type { FrameOutcome } from '../src/services/frameAggregator';
+import { mergeFrameSnapshots } from '../src/services/refIndex';
+import type { RefOwner } from '../src/services/refIndex';
 import { ALLOWLIST_STORAGE_KEY, isUrlAllowed } from '../src/services/urlAllowlist';
 import type { UrlAllowRule } from '../src/services/urlAllowlist';
 import { detectUrlChange } from '../src/services/navigationDetector';
 
 export default defineBackground(() => {
   const cdp = createCdpSessionManager();
+
+  /**
+   * 全局 ref → 所属 frame 的索引，按 tabId 存。
+   *
+   * 每次快照重建：ref 是快照铸的，旧索引对新快照无意义。
+   * 没有这个索引就只能广播猜 frame，而各 frame 的本地 ref 号会撞车。
+   */
+  const refOwners = new Map<number, Map<number, RefOwner>>();
 
   // ── CDP 会话事件 ────────────────────────────────────────────────
 
@@ -33,6 +43,7 @@ export default defineBackground(() => {
 
   // 标签页关闭时释放会话，避免把命令打到已失效的 target 上。
   chrome.tabs.onRemoved.addListener((tabId) => {
+    refOwners.delete(tabId);
     if (cdp.activeTabId === tabId) void cdp.detach('target_closed');
   });
 
@@ -78,7 +89,7 @@ export default defineBackground(() => {
       const beforeUrl = await currentTabUrl(message.tabId);
       // 先点击建立真实焦点，再 insertText。不改 value —— 那会绕过输入法与框架的受控更新路径。
       await cdp.click(message.x, message.y);
-      const focus = await readFocusState(message.tabId);
+      const focus = await readFocusState(message.tabId, message.frameId);
       if (!focus.focused) {
         return { ok: false, message: `点击输入框后焦点未落在可编辑元素上（当前焦点：${focus.activeTag}），未写入文本。`, focused: false };
       }
@@ -86,7 +97,7 @@ export default defineBackground(() => {
       // 拆成两次消息会让「点击」重新落一次光标，把选区冲掉。
       if (message.clearFirst) await cdp.selectAll();
       await cdp.insertText(message.text);
-      const after = await readFocusState(message.tabId);
+      const after = await readFocusState(message.tabId, message.frameId);
       const navigation = await detectNavigation(message.tabId, beforeUrl);
       // 回读实际值并校验：清空+输入是「预期值应完全等于 text」的唯一场景，
       // 不一致说明选区没生效（曾出现拼接成 2026-2026-08-2707-27），必须让模型知道。
@@ -186,31 +197,37 @@ export default defineBackground(() => {
       // 快照合并所有 frame 的结果而不是取最优：自由指令下模型需要看到整页的可交互元素，
       // 目标很可能在某个子 frame 里（比如嵌入式搜索框）。
       const outcomes = await broadcastToFrames<PageSnapshotResult>(message.tabId, message);
-      const collected = outcomes.map((outcome) => outcome.result).filter((result): result is PageSnapshotResult => result !== undefined);
+      const collected = outcomes
+        .filter((outcome): outcome is { frameId: number; result: PageSnapshotResult } => outcome.result !== undefined)
+        .map((outcome) => ({ frameId: outcome.frameId, result: outcome.result }));
       if (collected.length === 0) {
         throw new RoutedError('CONTENT_UNAVAILABLE', '没有任何 frame 返回快照，请刷新目标页面后重试。');
       }
-      const main = collected.find((result) => result.frameId === 'main') ?? collected[0];
-      const truncated = collected.reduce((sum, result) => sum + (result.truncated ?? 0), 0);
-      return {
-        url: main?.url ?? '',
-        title: main?.title ?? '',
-        entries: collected.flatMap((result) => result.entries),
-        ...(truncated > 0 ? { truncated } : {}),
-      } satisfies PageSnapshotResult;
+      // 各 frame 的本地 ref 都从 1 开始，必须重编号成全局唯一并记住归属，
+      // 否则动作会按撞车的 ref 号解析到别的 frame 的同号元素。
+      const { snapshot, owners } = mergeFrameSnapshots(collected);
+      refOwners.set(message.tabId, owners);
+      return snapshot;
     },
 
     [MessageType.ContentResolveRef]: async (message) => {
-      // ref 只在登记它的那个 frame 里有效，所以广播后取唯一命中的那个。
-      const outcomes = await broadcastToFrames<RefResolution>(message.tabId, message);
-      const results = outcomes.map((outcome) => outcome.result).filter((result): result is RefResolution => result !== undefined);
-      const hit = results.find((result) => result.found);
-      if (hit) return hit;
-      // 没有命中：若有 frame 明确报 stale，透出该原因，让模型知道要重新快照。
-      return (
-        results.find((result) => result.stale) ??
-        results[0] ?? { found: false, stale: true, message: `ref ${message.ref} 未在任何 frame 中找到，请重新快照。` }
-      );
+      // ref 只在登记它的那个 frame 里有效，靠快照建立的索引定向投递。
+      const owner = refOwners.get(message.tabId)?.get(message.ref);
+      if (!owner) {
+        return {
+          found: false,
+          stale: true,
+          message: `ref ${message.ref} 不在最近一次快照中，请重新调用 browser_snapshot。`,
+        } satisfies RefResolution;
+      }
+      const scoped = { ...message, ref: owner.localRef };
+      const response = (await sendToFrame(message.tabId, scoped, owner.frameId)) as MessageResponse<RefResolution> | undefined;
+      if (response?.ok) return { ...response.data, frameId: owner.frameId };
+      return {
+        found: false,
+        stale: true,
+        message: `ref ${message.ref} 所属 frame（frameId=${owner.frameId}）未应答，页面可能已重新加载，请重新快照。`,
+      } satisfies RefResolution;
     },
   };
 
@@ -296,10 +313,18 @@ export default defineBackground(() => {
     await requireAllowedUrl(tabId);
   }
 
-  /** 读取焦点状态。用于确认 CDP 点击是否真的把焦点落在了输入框上。 */
-  async function readFocusState(tabId: number): Promise<{ focused: boolean; activeTag: string; value: string }> {
-    const [result] = await chrome.scripting.executeScript({
-      target: { tabId },
+  /**
+   * 读取焦点状态。用于确认 CDP 点击是否真的把焦点落在了输入框上。
+   *
+   * 必须在目标元素所属的 frame 里读：主 frame 的 activeElement 在跨 frame 场景下
+   * 就是那个 <iframe> 元素本身，会把「焦点已正确落在子 frame 的输入框」误判成失败。
+   */
+  async function readFocusState(tabId: number, frameId?: number): Promise<{ focused: boolean; activeTag: string; value: string }> {
+    // 已知目标 frame 时只读它；未知（按 x/y 直接操作）时读全部 frame 再挑出真正持有焦点的那个。
+    // 主 frame 的 activeElement 在跨 frame 场景下是 <iframe> 本身，只读主 frame 必然误判。
+    const target = typeof frameId === 'number' ? { tabId, frameIds: [frameId] } : { tabId, allFrames: true as const };
+    const results = await chrome.scripting.executeScript({
+      target,
       func: () => {
         const active = document.activeElement;
         const tag = active?.tagName?.toLowerCase() ?? 'none';
@@ -316,11 +341,18 @@ export default defineBackground(() => {
         return { focused: editable, activeTag: tag, value };
       },
     });
-    return (result?.result as { focused: boolean; activeTag: string; value: string } | undefined) ?? {
-      focused: false,
-      activeTag: 'unknown',
-      value: '',
-    };
+    const states = results
+      .map((item) => item.result as { focused: boolean; activeTag: string; value: string } | undefined)
+      .filter((state): state is { focused: boolean; activeTag: string; value: string } => state !== undefined);
+    // 任一 frame 报持有可编辑焦点即成立：焦点在整个标签页里只有一处。
+    return (
+      states.find((state) => state.focused) ??
+      states[0] ?? {
+        focused: false,
+        activeTag: 'unknown',
+        value: '',
+      }
+    );
   }
 
   /** 转发到 content script，未就绪时按需注入并重试一次。 */
@@ -425,6 +457,15 @@ export default defineBackground(() => {
   async function sendToTab(tabId: number, message: ExtensionRequest): Promise<MessageResponse | undefined> {
     try {
       return await chrome.tabs.sendMessage(tabId, message);
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** 定向投递到指定 frame。ref 类操作必须定向：各 frame 的本地 ref 号会撞车。 */
+  async function sendToFrame(tabId: number, message: ExtensionRequest, frameId: number): Promise<MessageResponse | undefined> {
+    try {
+      return await chrome.tabs.sendMessage(tabId, message, { frameId });
     } catch {
       return undefined;
     }

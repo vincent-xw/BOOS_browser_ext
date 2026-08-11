@@ -6,7 +6,7 @@ import { createApprovalGate, summarizeAction } from '../agent/approvalGate';
 import type { ApprovalDecision, ApprovalRequest, GrantScope } from '../agent/approvalGate';
 import { createMessageSender } from '../agent/toolExecutor';
 import { cdpActionService } from '../services/cdpActionService';
-import { hasUrlPermission, loadAllowRules, requestPermissionForUrl } from '../services/permissionService';
+import { hasUrlPermission, loadAllowRules, requestPermissionForUrl, addAllowRule } from '../services/permissionService';
 import {
   deleteSession,
   getSession,
@@ -143,8 +143,19 @@ export function useFreeFormController() {
     if (requestingPermission.value) return { ok: false, message: '正在申请中...' };
     requestingPermission.value = true;
     try {
+      // 同时申请 Chrome host 权限和写入白名单，避免用户需要授权两次。
+      // 先请求权限，再写入白名单；权限被拒则白名单不写。
       const result = await requestPermissionForUrl(currentUrl.value);
-      if (result.ok) await refreshPageContext();
+      if (result.ok) {
+        try {
+          const parsed = new URL(currentUrl.value);
+          const domain = parsed.hostname;
+          await addAllowRule({ domain, pathPrefix: '' });
+        } catch {
+          // 白名单写入失败不影响本次授权，只是下次还需要手动添加。
+        }
+        await refreshPageContext();
+      }
       return { ok: result.ok, message: result.message };
     } finally {
       requestingPermission.value = false;
@@ -288,7 +299,7 @@ export function useFreeFormController() {
         sessionId: sessionId.value,
         tabId,
         send,
-        approval: approvalGate,
+        ...(settings.value.advanced.approvalEnabled ? { approval: approvalGate } : {}),
         currentUrl: currentUrl.value,
         maxSteps: settings.value.advanced.maxSteps,
         signal: abortController.signal,
@@ -400,11 +411,14 @@ export function useFreeFormController() {
   }
 
   /** 停止当前任务。 */
+  const isStopping = ref(false);
   async function stop(): Promise<void> {
+    isStopping.value = true;
     abortController?.abort();
     // 若正卡在审批对话框上，一并按拒绝处理，否则 Promise 永远不会 resolve。
     approvalResolver?.({ approved: false, reason: '任务已被停止。' });
     await cdpActionService.detach();
+    isStopping.value = false;
   }
 
   /**
@@ -449,6 +463,7 @@ export function useFreeFormController() {
     rejectPlan,
     submitInstruction,
     stop,
+    isStopping,
     startNewSession,
     switchSession,
     removeSession,
