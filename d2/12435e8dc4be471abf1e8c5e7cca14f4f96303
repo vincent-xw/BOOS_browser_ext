@@ -1,0 +1,32 @@
+src/types/cdp.ts
+  s_f4f58e3e3b560e::t_cf22109d1c6fb7 206-207
+  s_f4f58e3e3b560e::t_6035e09bb27975 64-65
+entrypoints/background.ts
+  s_f4f58e3e3b560e::t_f444da0698421f 5,231-232
+  s_f4f58e3e3b560e::t_5109403c37ef3e 258
+  s_f4f58e3e3b560e::t_edaac0776ba3ad 259-262
+  s_f4f58e3e3b560e::t_1b8329b4cbdb50 200
+  s_f4f58e3e3b560e::t_5fa2ba0dda2fc9 228-230,233-236,241-242
+  s_f4f58e3e3b560e::t_65dec533869d1a 224
+  s_f4f58e3e3b560e::t_a94783c4ecb32b 197-199,201-215
+  s_f4f58e3e3b560e::t_266b27a9054439 19,21-25,27-46
+  s_f4f58e3e3b560e::t_46238aa4ad2f1e 425-428,434-441,443-445,448-457
+  s_f4f58e3e3b560e::t_a1173054382fa8 267
+  s_f4f58e3e3b560e::t_af44e5a12e7a66 68
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "d212435e8dc4be471abf1e8c5e7cca14f4f96303",
+  "prompts": {},
+  "sessions": {
+    "s_f4f58e3e3b560e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e52a834c-51fd-4106-906b-b697c4ce453f",
+        "model": "auto"
+      },
+      "human_author": "xuewen.jia <xuewen.jia@ly.com>"
+    }
+  }
+}
