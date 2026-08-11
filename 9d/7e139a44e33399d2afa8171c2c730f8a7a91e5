@@ -1,0 +1,91 @@
+src/services/domLocator.ts
+  s_f4f58e3e3b560e::t_8a5a80ed256260 607
+src/components/FreeFormPanel.vue
+  s_a5ccc70c31b60a::t_1c6d412704d158 62
+  s_a5ccc70c31b60a::t_ac0849807ee724 352-364,978
+  s_1c222083983777::t_31acc17ee7011f 528-531,533-541
+  s_a5ccc70c31b60a::t_5ae9a4078abed5 178-182
+  s_a5ccc70c31b60a::t_2b81fb2d70aa85 31
+  s_1c222083983777::t_9f92c3e54848b6 589
+  s_a5ccc70c31b60a::t_027500e11f3a3c 509
+  s_a5ccc70c31b60a::t_6ae32dd3dc3234 609
+  s_1c222083983777::t_e5fe979bfad87b 610,614
+  s_a5ccc70c31b60a::t_b526e29401369b 972,975-977
+  s_a5ccc70c31b60a::t_699fdb38a2947c 493
+  s_1c222083983777::t_40f43a5f92dd4b 1036,1038-1040,1042-1044
+src/services/refIndex.ts
+  s_f4f58e3e3b560e::t_3eaddae64b03d8 1-55,57,62-79
+  s_f4f58e3e3b560e::t_137628a6304da0 56,58-61
+src/agent/toolExecutor.ts
+  s_f4f58e3e3b560e::t_a8ce07296dd9c9 286-288
+  s_f4f58e3e3b560e::t_8140f597c57145 105
+  s_f4f58e3e3b560e::t_99ef83b5605153 126-134
+entrypoints/sidepanel/App.vue
+  s_a5ccc70c31b60a::t_1a5b3b10c454e7 2
+  s_a5ccc70c31b60a::t_d92ec3ff8a1d6a 48-49,59
+  s_a5ccc70c31b60a::t_a2f2e4749e6e4a 119
+src/agent/toolExecutor.test.ts
+  s_f4f58e3e3b560e::t_a95655d109c89a 248-261
+entrypoints/background.ts
+  s_f4f58e3e3b560e::t_a2bac31a06d613 200-202,206-210,214-230
+  s_f4f58e3e3b560e::t_9a4f88783628bf 92,100
+  s_f4f58e3e3b560e::t_366953d5513697 316-321
+  s_f4f58e3e3b560e::t_6c0f8948a7c5d3 9-10
+  s_f4f58e3e3b560e::t_8edee7e6cd4991 46
+  s_f4f58e3e3b560e::t_117f0b772de007 18-25
+  s_f4f58e3e3b560e::t_02dafb5c4cbded 465-473
+  s_f4f58e3e3b560e::t_85e086bf4d631a 322-327,344-355
+src/services/refIndex.test.ts
+  s_f4f58e3e3b560e::t_3ae47f0235b95a 1-129
+src/composables/useFreeFormController.ts
+  s_a5ccc70c31b60a::t_de781b3a6e567e 414,416,421
+  s_a5ccc70c31b60a::t_5d2665309f5e77 146-147,149-158
+  s_a5ccc70c31b60a::t_e5375b57115047 302
+  s_a5ccc70c31b60a::t_d5627e5c19eca3 9
+  s_a5ccc70c31b60a::t_a00cb157787b54 466
+src/types/cdp.ts
+  s_f4f58e3e3b560e::t_e7c369fa1135bb 62-63
+  s_f4f58e3e3b560e::t_ecfd2ee4843a51 78-79
+  s_f4f58e3e3b560e::t_2baf45f68342cf 51-52
+src/types/settings.ts
+  s_a5ccc70c31b60a::t_d94e20e7264449 51
+  s_a5ccc70c31b60a::t_4ee9c05d299e7e 15-16
+src/services/settingsService.test.ts
+  s_a5ccc70c31b60a::t_30d08021f3aae2 122
+src/components/ExtensionSettingsPanel.vue
+  s_a5ccc70c31b60a::t_309975a4090411 213-219
+src/types/messages.ts
+  s_f4f58e3e3b560e::t_0f7ebcdf4198f6 76
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "9d7e139a44e33399d2afa8171c2c730f8a7a91e5",
+  "prompts": {},
+  "sessions": {
+    "s_1c222083983777": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5dbd2c55-111a-4712-880c-86342120d99d",
+        "model": "auto"
+      },
+      "human_author": "xuewen.jia <xuewen.jia@ly.com>"
+    },
+    "s_a5ccc70c31b60a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fdd4e454-ebf8-4ca8-bbd0-3dcdb7420f73",
+        "model": "auto"
+      },
+      "human_author": "xuewen.jia <xuewen.jia@ly.com>"
+    },
+    "s_f4f58e3e3b560e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e52a834c-51fd-4106-906b-b697c4ce453f",
+        "model": "auto"
+      },
+      "human_author": "xuewen.jia <xuewen.jia@ly.com>"
+    }
+  }
+}
