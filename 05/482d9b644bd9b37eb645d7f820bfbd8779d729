@@ -1,0 +1,25 @@
+src/services/domLocator.ts
+  s_f4f58e3e3b560e::t_ed588acada3198 606-608
+src/services/refIndex.ts
+  s_f4f58e3e3b560e::t_467da877648c1f 75
+src/types/cdp.ts
+  s_f4f58e3e3b560e::t_3e0f934a31e557 60-61
+src/composables/useFreeFormController.ts
+  s_f4f58e3e3b560e::t_839f095d1f60fe 32,34-37,45-48,50-76
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "05482d9b644bd9b37eb645d7f820bfbd8779d729",
+  "prompts": {},
+  "sessions": {
+    "s_f4f58e3e3b560e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e52a834c-51fd-4106-906b-b697c4ce453f",
+        "model": "auto"
+      },
+      "human_author": "xuewen.jia <xuewen.jia@ly.com>"
+    }
+  }
+}
