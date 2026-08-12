@@ -45,6 +45,18 @@ export const TOOLS_CATALOG: readonly ToolDescription[] = [
     category: 'write',
   },
   {
+    name: 'browser_hover',
+    title: '悬停',
+    description: '把鼠标移到某个元素上但不点击，用于展开「鼠标移上去才出现」的菜单。不会提交或跳转，所以不需要你批准。',
+    category: 'read',
+  },
+  {
+    name: 'browser_wait_for',
+    title: '等待页面变化',
+    description: '等某个元素出现或消失，或等页面停止变化。下拉展开有动画、内容要等接口返回时会用到，避免模型在页面还没准备好时就去操作。',
+    category: 'read',
+  },
+  {
     name: 'browser_input_text',
     title: '输入文本',
     description: '在输入框中写入文字（支持中文）。会先点击输入框获取焦点，再写入。这是写操作，需要你批准。',
@@ -71,7 +83,8 @@ export const TOOLS_CATALOG: readonly ToolDescription[] = [
   {
     name: 'browser_screenshot',
     title: '截图',
-    description: '截取当前屏幕。当模型反复定位失败时用来观察页面实际状态。',
+    description:
+      '给当前页面截图并保存，供用户查看下载。仅在用户明确要求截图时使用（如「帮我截个图」）——截图不会返回给你，你看不到图片内容，用它来观察或排查页面状态是无效的，请改用 browser_snapshot。',
     category: 'read',
   },
   {
@@ -84,6 +97,18 @@ export const TOOLS_CATALOG: readonly ToolDescription[] = [
     name: 'browser_save_file',
     title: '生成文件',
     description: '把收集到的数据生成 txt/csv/xlsx/json 文件。文件生成后会在对话区域出现下载按钮，用户点击即可下载。这是只读操作，不需要审批。适合汇总数据导出场景。',
+    category: 'read',
+  },
+  {
+    name: 'browser_read_file',
+    title: '读取文件',
+    description: '从持久化存储读取用户上传的文本文件。跨会话可用。适合读取用户提供的 CSV/JSON/TXT 数据进行处理。',
+    category: 'read',
+  },
+  {
+    name: 'browser_write_file',
+    title: '保存文件',
+    description: '将文本内容保存到持久化存储。跨会话可用，下次会话可直接读取。适合保存中间结果、加工后的数据。',
     category: 'read',
   },
 ];

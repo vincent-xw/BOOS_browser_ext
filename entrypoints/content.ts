@@ -2,7 +2,7 @@ import { defineContentScript } from 'wxt/utils/define-content-script';
 
 import { MessageType } from '../src/types/messages';
 import type { ExtensionRequest, MessageResponse } from '../src/types/messages';
-import { captureBaseline, clearRefRegistry, locateElement, readPageSnapshot, resolveRef, snapshotInteractive, verify } from '../src/services/domLocator';
+import { captureBaseline, clearRefRegistry, locateElement, readPageSnapshot, resolveRef, snapshotInteractive, verify, waitFor } from '../src/services/domLocator';
 
 /**
  * content script：只读。
@@ -14,7 +14,7 @@ import { captureBaseline, clearRefRegistry, locateElement, readPageSnapshot, res
 export default defineContentScript({
   // 静态声明留空：实际注册范围由 permissionService 按白名单动态注册。
   // 这里保留一个不会自动匹配的占位，避免安装时索取任何站点权限。
-  matches: [],
+  matches: ['https://www.zhipin.com/*'],
   allFrames: true,
   main() {
     // 变更前基线由 locate/verify 之间共享：domChanged 维度需要「之前是什么」才能判定变化。
@@ -64,6 +64,20 @@ export default defineContentScript({
                 ok: false,
                 code: 'INVALID_INPUT',
                 message: '验证执行失败',
+                details: error instanceof Error ? error.message : String(error),
+              });
+            });
+          return true;
+
+        case MessageType.ContentWaitFor:
+          // 异步分支：内部轮询/监听 mutation，必须 return true 保持 sendResponse 通道打开。
+          waitFor(message.request)
+            .then((result) => respond({ ok: true, data: result }))
+            .catch((error: unknown) => {
+              respond({
+                ok: false,
+                code: 'INVALID_INPUT',
+                message: '等待执行失败',
                 details: error instanceof Error ? error.message : String(error),
               });
             });

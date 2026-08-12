@@ -175,6 +175,8 @@ export interface AgentSessionOptions {
   approval?: ApprovalGate;
   /** 当前页面 URL，用于审批展示与域名级授权判定。 */
   currentUrl?: string;
+  /** 首轮注入的上下文（页面快照、勾选的文件等）。 */
+  context?: Record<string, unknown>;
 }
 
 /**
@@ -189,7 +191,7 @@ export async function runAgentSession(input: string, options: AgentSessionOption
   const { config, sessionId, tabId, send, onStep, approval } = options;
   const maxSteps = options.maxSteps ?? 30;
 
-  let result = await runAgent(config, sessionId, input, {}, options.promptName);
+  let result = await runAgent(config, sessionId, input, options.context ?? {}, options.promptName);
   let step = 0;
 
   while (result.type === 'pending_tool_calls') {
@@ -205,11 +207,11 @@ export async function runAgentSession(input: string, options: AgentSessionOption
       let output: unknown;
       let denied = false;
       if (!allowed) {
-        output = await executeTool(call.toolName, call.input, { tabId, send });
+        output = await executeTool(call.toolName, call.input, { tabId, send, userInstruction: input });
       } else if (approval) {
         const decision = await approval.requestPermission(call.toolName, call.input, options.currentUrl ?? '');
         if (decision.approved) {
-          output = await executeTool(call.toolName, call.input, { tabId, send });
+          output = await executeTool(call.toolName, call.input, { tabId, send, userInstruction: input });
         } else {
           denied = true;
           output = {
@@ -219,7 +221,7 @@ export async function runAgentSession(input: string, options: AgentSessionOption
           };
         }
       } else {
-        output = await executeTool(call.toolName, call.input, { tabId, send });
+        output = await executeTool(call.toolName, call.input, { tabId, send, userInstruction: input });
       }
 
       onStep?.({ step, toolName: call.toolName, input: call.input, output, allowed, ...(denied ? { denied } : {}) });

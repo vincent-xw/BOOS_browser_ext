@@ -186,6 +186,11 @@ export function createCdpSessionManager() {
     await dispatchPhase('mouseReleased', { ...base, type: 'mouseReleased' });
   }
 
+  /** 悬停：只移动鼠标，不按下。用于展开 hover 才出现的菜单。 */
+  async function hover(x: number, y: number): Promise<void> {
+    await dispatchPhase('mouseMoved', { type: 'mouseMoved', x, y });
+  }
+
   async function dispatchPhase(phase: string, params: Record<string, unknown>): Promise<void> {
     try {
       await send('Input.dispatchMouseEvent', params);
@@ -201,6 +206,32 @@ export function createCdpSessionManager() {
   /** 文本输入。中文与普通文本都走 insertText，不改 value。 */
   async function insertText(text: string): Promise<void> {
     await send('Input.insertText', { text });
+  }
+
+  /**
+   * 全选当前焦点元素的内容。
+   *
+   * 用 CDP 的原生编辑命令而不是模拟 Meta/Control+A：修饰键组合是平台相关的
+   * （mac 用 Meta、Windows/Linux 用 Control），而 commands 由 Chrome 自己解释，
+   * 跨平台一致。全选后 Input.insertText 会替换选区，这是「先清空再输入」的前提 ——
+   * 没有选区时 insertText 只在光标处插入，会和原有内容拼接。
+   */
+  async function selectAll(): Promise<void> {
+    await send('Input.dispatchKeyEvent', {
+      type: 'keyDown',
+      key: 'a',
+      code: 'KeyA',
+      windowsVirtualKeyCode: 65,
+      nativeVirtualKeyCode: 65,
+      commands: ['selectAll'],
+    });
+    await send('Input.dispatchKeyEvent', {
+      type: 'keyUp',
+      key: 'a',
+      code: 'KeyA',
+      windowsVirtualKeyCode: 65,
+      nativeVirtualKeyCode: 65,
+    });
   }
 
   /** 按键。keyDown + keyUp 成对下发。 */
@@ -305,7 +336,9 @@ export function createCdpSessionManager() {
     state,
     restore,
     click,
+    hover,
     insertText,
+    selectAll,
     pressKey,
     scroll,
     screenshot,

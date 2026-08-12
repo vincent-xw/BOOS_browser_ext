@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { executeTool, isAllowedTool, isReadOnlyTool, TOOL_ALLOWLIST } from './toolExecutor';
+import { executeTool, isAllowedTool, isReadOnlyTool, normalizeWaitFor, TOOL_ALLOWLIST } from './toolExecutor';
 import { MessageType } from '../types/messages';
 import type { ExtensionRequest } from '../types/messages';
 
@@ -21,6 +21,8 @@ describe('白名单', () => {
       'browser_read_page',
       'browser_locate_element',
       'browser_click',
+      'browser_hover',
+      'browser_wait_for',
       'browser_input_text',
       'browser_press_key',
       'browser_scroll',
@@ -28,6 +30,8 @@ describe('白名单', () => {
       'browser_verify',
       'browser_screenshot',
       'browser_save_file',
+      'browser_read_file',
+      'browser_write_file',
     ]);
   });
 
@@ -44,12 +48,46 @@ describe('白名单', () => {
 
   it('只读工具与写工具划分正确', () => {
     // 这条划分决定了审批门放行谁：读自动、写需批准。
-    for (const name of ['browser_snapshot', 'browser_read_page', 'browser_locate_element', 'browser_verify', 'browser_screenshot']) {
+    for (const name of ['browser_snapshot', 'browser_read_page', 'browser_locate_element', 'browser_verify', 'browser_screenshot', 'browser_hover', 'browser_wait_for']) {
       expect(isReadOnlyTool(name), `${name} 应为只读`).toBe(true);
     }
     for (const name of ['browser_click', 'browser_input_text', 'browser_press_key', 'browser_scroll']) {
       expect(isReadOnlyTool(name), `${name} 应为写操作`).toBe(false);
     }
+  });
+});
+
+describe('normalizeWaitFor', () => {
+  it('appear / disappear 必须给 selector', () => {
+    expect(normalizeWaitFor({ condition: 'appear' }).ok).toBe(false);
+    expect(normalizeWaitFor({ condition: 'disappear', selector: '  ' }).ok).toBe(false);
+    expect(normalizeWaitFor({ condition: 'appear', selector: '.el-select-dropdown' }).ok).toBe(true);
+  });
+
+  it('stable 不需要 selector', () => {
+    const result = normalizeWaitFor({ condition: 'stable' });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value).toEqual({ condition: 'stable' });
+  });
+
+  it('拒绝未知的 condition', () => {
+    expect(normalizeWaitFor({ condition: 'whatever' }).ok).toBe(false);
+    expect(normalizeWaitFor({}).ok).toBe(false);
+  });
+
+  it('越界的超时值被夹到区间内而不是报错', () => {
+    // 模型给出离谱数值时纠正即可，报错只会让它重试一遍同样的错。
+    const tooLong = normalizeWaitFor({ condition: 'stable', timeoutMs: 999_999, stableMs: 99_999 });
+    expect(tooLong.ok).toBe(true);
+    if (tooLong.ok) expect(tooLong.value).toMatchObject({ timeoutMs: 15_000, stableMs: 3_000 });
+
+    const tooShort = normalizeWaitFor({ condition: 'stable', timeoutMs: 1, stableMs: 1 });
+    if (tooShort.ok) expect(tooShort.value).toMatchObject({ timeoutMs: 100, stableMs: 100 });
+  });
+
+  it('selector 两端空白被裁掉', () => {
+    const result = normalizeWaitFor({ condition: 'appear', selector: '  .dropdown  ' });
+    if (result.ok) expect(result.value.selector).toBe('.dropdown');
   });
 });
 
@@ -207,17 +245,34 @@ describe('ref 引用派发', () => {
     });
   });
 
-  it('clearFirst 会在写入前全选删除', async () => {
+  it('输入文本把目标所属 frame 透给 background', async () => {
+    // 焦点检查必须在目标 frame 里做：主 frame 的 activeElement 是 <iframe> 本身，
+    // 只读主 frame 会把「焦点已正确落在子 frame 输入框」误判成失败，导致 iframe 页面必然写不进去。
+    const { sent, send } = refSender({ found: true, x: 844, y: 205, frameId: 357 });
+    await executeTool('browser_input_text', { ref: 2, text: '13188889253' }, { tabId: 1, send });
+    expect(sent.find((message) => message.type === MessageType.CdpInputText)).toMatchObject({ frameId: 357 });
+  });
+
+  it('主 frame 的目标不带 frameId 字段', async () => {
+    const { sent, send } = refSender({ found: true, x: 10, y: 20, frameId: 0 });
+    await executeTool('browser_input_text', { ref: 2, text: 'x' }, { tabId: 1, send });
+    expect(sent.find((message) => message.type === MessageType.CdpInputText)).toMatchObject({ frameId: 0 });
+  });
+
+  it('clearFirst 会把清空折叠进写入消息，不再拆成多次消息', async () => {
     const { sent, send } = refSender({ found: true, x: 1, y: 2 });
     await executeTool('browser_input_text', { ref: 2, text: '新内容', clearFirst: true }, { tabId: 1, send });
     const types = sent.map((message) => message.type);
-    // 解析 ref → 点击聚焦 → 退格清空 → 写入
+    // 解析 ref → 写入（clearFirst 在 background 同一次消息内完成，
+    // 拆成点击+退格两条消息会让后续点击冲掉选区，导致原文本一个字都没删）
     expect(types).toEqual([
       MessageType.ContentResolveRef,
-      MessageType.CdpClick,
-      MessageType.CdpPressKey,
       MessageType.CdpInputText,
     ]);
+    expect(sent.find((message) => message.type === MessageType.CdpInputText)).toMatchObject({
+      clearFirst: true,
+      text: '新内容',
+    });
   });
 
   it('ref 解析出的 label 用作点击日志标签', async () => {
@@ -247,5 +302,44 @@ describe('执行失败', () => {
     const result = await executeTool('browser_click', { x: 1, y: 2 }, { tabId: 1, send });
     expect(result).toMatchObject({ ok: false, code: 'TOOL_EXECUTION_FAILED' });
     expect((result as { message: string }).message).toContain('NO_DEBUG_SESSION');
+  });
+});
+
+describe('截图意图判断', () => {
+  function screenshotSender() {
+    const sent: ExtensionRequest[] = [];
+    const send = (async (message: ExtensionRequest) => {
+      sent.push(message);
+      if (message.type === MessageType.CdpScreenshot) {
+        return { dataUrl: 'data:image/png;base64,xxxx', width: 100, height: 100 };
+      }
+      return { ok: true };
+    }) as unknown as <T>(message: ExtensionRequest) => Promise<T>;
+    return { sent, send };
+  }
+
+  it('中文「截图」触发保存', async () => {
+    const { send } = screenshotSender();
+    const result = await executeTool('browser_screenshot', {}, { tabId: 1, send, userInstruction: '帮我截图当前页面' });
+    expect(result).toMatchObject({ persisted: true, screenshotId: expect.any(String) });
+  });
+
+  it('用户未提截图时不保存，避免污染附件列表', async () => {
+    const { send } = screenshotSender();
+    const result = await executeTool('browser_screenshot', {}, { tabId: 1, send, userInstruction: '查一下订单状态' });
+    expect(result).toMatchObject({ persisted: false });
+    expect((result as { message: string }).message).toContain('browser_snapshot');
+  });
+
+  it('无 userInstruction 时默认不保存（模型自发截图）', async () => {
+    const { send } = screenshotSender();
+    const result = await executeTool('browser_screenshot', {}, { tabId: 1, send });
+    expect(result).toMatchObject({ persisted: false });
+  });
+
+  it('英文 screenshot 同样识别为意图', async () => {
+    const { send } = screenshotSender();
+    const result = await executeTool('browser_screenshot', {}, { tabId: 1, send, userInstruction: 'take a screenshot for me' });
+    expect(result).toMatchObject({ persisted: true });
   });
 });

@@ -40,6 +40,16 @@ export interface SnapshotEntry {
   disabled?: boolean;
   /** 输入类元素的当前值，便于模型判断是否需要先清空。 */
   value?: string;
+  /** 最近的、本身也在快照里的祖先 ref。扁平列表靠它表达层级，比嵌套 JSON 省 token。 */
+  parent?: number;
+  /** aria-expanded 为真。配合 inPopup 让模型判断下拉是开还是关。 */
+  expanded?: boolean;
+  /** 位于弹层/浮层容器内。浮层存在本身就说明下拉已展开。 */
+  inPopup?: boolean;
+  /** 仅靠启发式识别（cursor:pointer 等），未命中显式可交互选择器，可能不可点。 */
+  soft?: boolean;
+  /** 元素所属 frame。主 frame 省略；子 frame 内的元素带上，便于排查坐标类问题。 */
+  frameId?: number;
 }
 
 /** 页面快照。 */
@@ -49,7 +59,10 @@ export interface PageSnapshotResult {
   entries: SnapshotEntry[];
   /** 超出上限被省略的元素数量。必须告知模型，否则它会以为看到了全部。 */
   truncated?: number;
-  frameId?: string;
+  /** 快照来源 frame 的可读标识，仅用于日志排查。frame 归属以 SnapshotEntry.frameId 为准。 */
+  sourceFrame?: string;
+  /** 有 frame 未返回内容时的提示。缺席的元素与「不存在」无法区分，必须显式告知模型。 */
+  warning?: string;
 }
 
 /** 按 ref 取当前坐标的结果。 */
@@ -64,6 +77,8 @@ export interface RefResolution {
   occludedBy?: string;
   label?: string;
   message?: string;
+  /** 元素所属 frame。动作要在这个 frame 里检查焦点、回读值。 */
+  frameId?: number;
 }
 
 /** 元素矩形，CSS 像素。 */
@@ -89,6 +104,26 @@ export interface LocateResult {
   /** 全部未命中时列出已尝试的选择器，便于用户调整配置。 */
   triedSelectors?: string[];
   message?: string;
+}
+
+/** 等待条件。appear / disappear 需要 selector；stable 等 DOM 停止变化。 */
+export type WaitForCondition = 'appear' | 'disappear' | 'stable';
+
+/** 等待请求。 */
+export interface WaitForRequest {
+  condition: WaitForCondition;
+  selector?: string;
+  timeoutMs?: number;
+  /** stable 条件下判定「不再变化」的静默时长。 */
+  stableMs?: number;
+}
+
+/** 等待结果。超时不算错误，satisfied=false 让模型据此改变策略。 */
+export interface WaitForResult {
+  satisfied: boolean;
+  waitedMs: number;
+  condition: WaitForCondition;
+  observed: string;
 }
 
 /** 验证维度。 */
@@ -168,6 +203,8 @@ export interface PageSnapshot {
   title: string;
   url: string;
   bodyPreview: string;
+  /** 有 frame 未返回内容时的提示，避免把「读不到」当成「页面上没有」。 */
+  warning?: string;
 }
 
 /** CDP Network 域观测到的请求。用于验证写操作是否真的产生了副作用。 */
@@ -187,3 +224,9 @@ export const DEFAULT_VERIFY_TIMEOUT_MS = 5000;
 
 /** 验证轮询间隔。 */
 export const VERIFY_POLL_INTERVAL_MS = 120;
+
+/** browser_wait_for 的默认等待上限。 */
+export const DEFAULT_WAIT_TIMEOUT_MS = 5000;
+
+/** stable 条件下判定「不再变化」的默认静默时长。 */
+export const DEFAULT_STABLE_MS = 500;

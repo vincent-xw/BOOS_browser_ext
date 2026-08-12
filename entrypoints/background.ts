@@ -2,16 +2,48 @@ import { defineBackground } from 'wxt/utils/define-background';
 
 import { MessageType } from '../src/types/messages';
 import type { ExtensionRequest, MessageErrorCode, MessageResponse, NavigationInfo } from '../src/types/messages';
-import type { LocateResult, PageSnapshot, PageSnapshotResult, RefResolution } from '../src/types/cdp';
+import type { LocateResult, PageSnapshot, PageSnapshotResult, RefResolution, WaitForResult } from '../src/types/cdp';
 import { CdpError, createCdpSessionManager, describeDetachReason } from '../src/services/cdpSessionManager';
 import { mergeTriedSelectors, pickBestOutcome, scoreLocateResult, scorePageSnapshot } from '../src/services/frameAggregator';
 import type { FrameOutcome } from '../src/services/frameAggregator';
+import { mergeFrameSnapshots } from '../src/services/refIndex';
+import type { RefOwner } from '../src/services/refIndex';
 import { ALLOWLIST_STORAGE_KEY, isUrlAllowed } from '../src/services/urlAllowlist';
 import type { UrlAllowRule } from '../src/services/urlAllowlist';
 import { detectUrlChange } from '../src/services/navigationDetector';
 
 export default defineBackground(() => {
   const cdp = createCdpSessionManager();
+
+  /**
+   * 全局 ref → 所属 frame 的索引。
+   *
+   * 存 chrome.storage.session 而不是内存 Map：MV3 的 Service Worker 空闲约 30s 就被杀，
+   * 而快照与后续动作之间隔着一次模型往返，几乎必然跨过这个窗口。存内存会导致
+   * 「刚拍完快照的 ref 立刻就说不在快照中」。session 存储在浏览器关闭时自动清空。
+   *
+   * 每次快照覆盖对应 tab 的条目：ref 是快照铸的，旧索引对新快照无意义。
+   */
+  const REF_OWNER_KEY = 'BOOS_REF_OWNERS';
+
+  type StoredOwners = Record<string, Record<string, RefOwner>>;
+
+  async function saveRefOwners(tabId: number, owners: Map<number, RefOwner>): Promise<void> {
+    const stored = ((await chrome.storage.session.get(REF_OWNER_KEY))[REF_OWNER_KEY] ?? {}) as StoredOwners;
+    stored[String(tabId)] = Object.fromEntries([...owners].map(([ref, owner]) => [String(ref), owner]));
+    await chrome.storage.session.set({ [REF_OWNER_KEY]: stored });
+  }
+
+  async function loadRefOwner(tabId: number, ref: number): Promise<RefOwner | undefined> {
+    const stored = ((await chrome.storage.session.get(REF_OWNER_KEY))[REF_OWNER_KEY] ?? {}) as StoredOwners;
+    return stored[String(tabId)]?.[String(ref)];
+  }
+
+  async function clearRefOwners(tabId: number): Promise<void> {
+    const stored = ((await chrome.storage.session.get(REF_OWNER_KEY))[REF_OWNER_KEY] ?? {}) as StoredOwners;
+    delete stored[String(tabId)];
+    await chrome.storage.session.set({ [REF_OWNER_KEY]: stored });
+  }
 
   // ── CDP 会话事件 ────────────────────────────────────────────────
 
@@ -33,6 +65,7 @@ export default defineBackground(() => {
 
   // 标签页关闭时释放会话，避免把命令打到已失效的 target 上。
   chrome.tabs.onRemoved.addListener((tabId) => {
+    void clearRefOwners(tabId);
     if (cdp.activeTabId === tabId) void cdp.detach('target_closed');
   });
 
@@ -62,18 +95,43 @@ export default defineBackground(() => {
       };
     },
 
+    [MessageType.CdpHover]: async (message) => {
+      await requireWritable(message.tabId);
+      await cdp.hover(message.x, message.y);
+      // 悬停后等浮层渲染：不等的话紧随其后的快照会拍到菜单出现之前的状态。
+      await new Promise((resolve) => setTimeout(resolve, message.settleMs ?? 300));
+      return {
+        ok: true,
+        message: `已悬停在 (${message.x}, ${message.y})${message.label ? `：${message.label}` : ''}`,
+      };
+    },
+
     [MessageType.CdpInputText]: async (message) => {
       await requireWritable(message.tabId);
       const beforeUrl = await currentTabUrl(message.tabId);
       // 先点击建立真实焦点，再 insertText。不改 value —— 那会绕过输入法与框架的受控更新路径。
       await cdp.click(message.x, message.y);
-      const focus = await readFocusState(message.tabId);
+      const focus = await readFocusState(message.tabId, message.frameId);
       if (!focus.focused) {
         return { ok: false, message: `点击输入框后焦点未落在可编辑元素上（当前焦点：${focus.activeTag}），未写入文本。`, focused: false };
       }
+      // 清空必须在确认焦点之后、insertText 之前，且和输入在同一次消息里完成：
+      // 拆成两次消息会让「点击」重新落一次光标，把选区冲掉。
+      if (message.clearFirst) await cdp.selectAll();
       await cdp.insertText(message.text);
-      const after = await readFocusState(message.tabId);
+      const after = await readFocusState(message.tabId, message.frameId);
       const navigation = await detectNavigation(message.tabId, beforeUrl);
+      // 回读实际值并校验：清空+输入是「预期值应完全等于 text」的唯一场景，
+      // 不一致说明选区没生效（曾出现拼接成 2026-2026-08-2707-27），必须让模型知道。
+      if (message.clearFirst && after.value !== undefined && after.value !== message.text) {
+        return {
+          ok: false,
+          message: `清空后写入的实际值与预期不一致：预期「${message.text}」，实际「${after.value}」。输入框可能未被清空，请重新定位后再试。`,
+          focused: true,
+          actualValue: after.value,
+          ...(navigation ? { navigation } : {}),
+        };
+      }
       return {
         ok: true,
         message: '文本已通过 Input.insertText 写入。',
@@ -136,7 +194,25 @@ export default defineBackground(() => {
 
     [MessageType.ContentPing]: (message) => forwardToContent(message.tabId, message),
     [MessageType.ContentLocate]: async (message) => {
-      // 向所有 frame 广播后按评分取最优。不能用 tabs.sendMessage 的默认行为 ——
+      // ref 路径必须定向到登记它的 frame：ref 现在是全局号，广播出去会被各 frame
+      // 当成自己的本地号解析，撞车后返回错误的元素（步骤日志里表现为坐标指向无关元素）。
+      if (typeof message.locator.ref === 'number') {
+        const owner = await loadRefOwner(message.tabId, message.locator.ref);
+        if (!owner) {
+          return {
+            found: false,
+            message: `ref ${message.locator.ref} 不在最近一次快照中，请重新调用 browser_snapshot。`,
+          } satisfies LocateResult;
+        }
+        const scoped = { ...message, locator: { ...message.locator, ref: owner.localRef } };
+        const response = (await sendToFrame(message.tabId, scoped, owner.frameId)) as MessageResponse<LocateResult> | undefined;
+        if (response?.ok) return { ...response.data, frameId: String(owner.frameId) };
+        return {
+          found: false,
+          message: `ref ${message.locator.ref} 所属 frame（frameId=${owner.frameId}）未应答，请重新快照。`,
+        } satisfies LocateResult;
+      }
+      // 选择器路径：向所有 frame 广播后按评分取最优。不能用 tabs.sendMessage 的默认行为 ——
       // 它只返回第一个应答的 frame，等于退化成「只读主 frame」。
       const outcomes = await broadcastToFrames<LocateResult>(message.tabId, message);
       const best = pickBestOutcome(outcomes, scoreLocateResult);
@@ -145,46 +221,65 @@ export default defineBackground(() => {
       return {
         found: false,
         triedSelectors: tried,
-        message: `全部 ${outcomes.length} 个 frame 均未定位到目标，已尝试 ${tried.length} 个选择器。建议先调用 browser_snapshot 取 ref。`,
+        message: `全部 ${outcomes.length} 个 frame 均未定位到目标，已尝试 ${tried.length} 个选择器${describeSilentFrames(outcomes) || '。建议先调用 browser_snapshot 取 ref'}。`,
       } satisfies LocateResult;
     },
     [MessageType.ContentVerify]: (message) => forwardToContent(message.tabId, message),
+    [MessageType.ContentWaitFor]: async (message) => {
+      // 广播而非只发主 frame：等待的元素常在子 frame 里（嵌入式表单），
+      // 只问主 frame 会稳定超时，看起来像「元素永远没出现」。
+      const outcomes = await broadcastToFrames<WaitForResult>(message.tabId, message);
+      const results = outcomes.map((outcome) => outcome.result).filter((result): result is WaitForResult => result !== undefined);
+      if (results.length === 0) throw new RoutedError('CONTENT_UNAVAILABLE', '没有任何 frame 响应等待请求，请刷新目标页面后重试。');
+      // 任一 frame 满足即满足；都不满足时取第一条的观察结果作为回执。
+      return results.find((result) => result.satisfied) ?? results[0];
+    },
     [MessageType.ContentReadPage]: async (message) => {
       const outcomes = await broadcastToFrames<PageSnapshot>(message.tabId, message);
       const best = pickBestOutcome(outcomes, scorePageSnapshot);
       if (!best) throw new RoutedError('CONTENT_UNAVAILABLE', '没有任何 frame 返回页面内容，请刷新目标页面后重试。');
-      return best.result;
+      const silent = describeSilentFrames(outcomes);
+      return silent ? { ...best.result, warning: `部分内容未读取到${silent}。` } : best.result;
     },
 
     [MessageType.ContentSnapshot]: async (message) => {
       // 快照合并所有 frame 的结果而不是取最优：自由指令下模型需要看到整页的可交互元素，
       // 目标很可能在某个子 frame 里（比如嵌入式搜索框）。
       const outcomes = await broadcastToFrames<PageSnapshotResult>(message.tabId, message);
-      const collected = outcomes.map((outcome) => outcome.result).filter((result): result is PageSnapshotResult => result !== undefined);
+      const collected = outcomes
+        .filter((outcome): outcome is { frameId: number; result: PageSnapshotResult } => outcome.result !== undefined)
+        .map((outcome) => ({ frameId: outcome.frameId, result: outcome.result }));
       if (collected.length === 0) {
         throw new RoutedError('CONTENT_UNAVAILABLE', '没有任何 frame 返回快照，请刷新目标页面后重试。');
       }
-      const main = collected.find((result) => result.frameId === 'main') ?? collected[0];
-      const truncated = collected.reduce((sum, result) => sum + (result.truncated ?? 0), 0);
-      return {
-        url: main?.url ?? '',
-        title: main?.title ?? '',
-        entries: collected.flatMap((result) => result.entries),
-        ...(truncated > 0 ? { truncated } : {}),
-      } satisfies PageSnapshotResult;
+      // 各 frame 的本地 ref 都从 1 开始，必须重编号成全局唯一并记住归属，
+      // 否则动作会按撞车的 ref 号解析到别的 frame 的同号元素。
+      const { snapshot, owners } = mergeFrameSnapshots(collected);
+      await saveRefOwners(message.tabId, owners);
+      // 有 frame 没应答时必须明说：否则「子 frame 的元素缺席」看起来就是「页面上没有这个元素」，
+      // 模型只会不停换选择器重试。
+      const silent = describeSilentFrames(outcomes);
+      return silent ? { ...snapshot, warning: `部分内容未纳入快照${silent}。` } : snapshot;
     },
 
     [MessageType.ContentResolveRef]: async (message) => {
-      // ref 只在登记它的那个 frame 里有效，所以广播后取唯一命中的那个。
-      const outcomes = await broadcastToFrames<RefResolution>(message.tabId, message);
-      const results = outcomes.map((outcome) => outcome.result).filter((result): result is RefResolution => result !== undefined);
-      const hit = results.find((result) => result.found);
-      if (hit) return hit;
-      // 没有命中：若有 frame 明确报 stale，透出该原因，让模型知道要重新快照。
-      return (
-        results.find((result) => result.stale) ??
-        results[0] ?? { found: false, stale: true, message: `ref ${message.ref} 未在任何 frame 中找到，请重新快照。` }
-      );
+      // ref 只在登记它的那个 frame 里有效，靠快照建立的索引定向投递。
+      const owner = await loadRefOwner(message.tabId, message.ref);
+      if (!owner) {
+        return {
+          found: false,
+          stale: true,
+          message: `ref ${message.ref} 不在最近一次快照中，请重新调用 browser_snapshot。`,
+        } satisfies RefResolution;
+      }
+      const scoped = { ...message, ref: owner.localRef };
+      const response = (await sendToFrame(message.tabId, scoped, owner.frameId)) as MessageResponse<RefResolution> | undefined;
+      if (response?.ok) return { ...response.data, frameId: owner.frameId };
+      return {
+        found: false,
+        stale: true,
+        message: `ref ${message.ref} 所属 frame（frameId=${owner.frameId}）未应答，页面可能已重新加载，请重新快照。`,
+      } satisfies RefResolution;
     },
   };
 
@@ -270,10 +365,18 @@ export default defineBackground(() => {
     await requireAllowedUrl(tabId);
   }
 
-  /** 读取焦点状态。用于确认 CDP 点击是否真的把焦点落在了输入框上。 */
-  async function readFocusState(tabId: number): Promise<{ focused: boolean; activeTag: string; value: string }> {
-    const [result] = await chrome.scripting.executeScript({
-      target: { tabId },
+  /**
+   * 读取焦点状态。用于确认 CDP 点击是否真的把焦点落在了输入框上。
+   *
+   * 必须在目标元素所属的 frame 里读：主 frame 的 activeElement 在跨 frame 场景下
+   * 就是那个 <iframe> 元素本身，会把「焦点已正确落在子 frame 的输入框」误判成失败。
+   */
+  async function readFocusState(tabId: number, frameId?: number): Promise<{ focused: boolean; activeTag: string; value: string }> {
+    // 已知目标 frame 时只读它；未知（按 x/y 直接操作）时读全部 frame 再挑出真正持有焦点的那个。
+    // 主 frame 的 activeElement 在跨 frame 场景下是 <iframe> 本身，只读主 frame 必然误判。
+    const target = typeof frameId === 'number' ? { tabId, frameIds: [frameId] } : { tabId, allFrames: true as const };
+    const results = await chrome.scripting.executeScript({
+      target,
       func: () => {
         const active = document.activeElement;
         const tag = active?.tagName?.toLowerCase() ?? 'none';
@@ -290,11 +393,18 @@ export default defineBackground(() => {
         return { focused: editable, activeTag: tag, value };
       },
     });
-    return (result?.result as { focused: boolean; activeTag: string; value: string } | undefined) ?? {
-      focused: false,
-      activeTag: 'unknown',
-      value: '',
-    };
+    const states = results
+      .map((item) => item.result as { focused: boolean; activeTag: string; value: string } | undefined)
+      .filter((state): state is { focused: boolean; activeTag: string; value: string } => state !== undefined);
+    // 任一 frame 报持有可编辑焦点即成立：焦点在整个标签页里只有一处。
+    return (
+      states.find((state) => state.focused) ??
+      states[0] ?? {
+        focused: false,
+        activeTag: 'unknown',
+        value: '',
+      }
+    );
   }
 
   /** 转发到 content script，未就绪时按需注入并重试一次。 */
@@ -312,29 +422,39 @@ export default defineBackground(() => {
   /**
    * 向标签页的每个 frame 分别投递并收集结果。
    * 单个 frame 失败（跨源、已卸载、脚本未注入）只留空结果，不影响其余 frame。
+   *
+   * 只要**有 frame 未应答**就补一次注入并重试那些 frame —— 早先的条件是「全部未应答」，
+   * 而主 frame 几乎总会应答，于是缺脚本的子 frame 永远等不到注入。症状是子 frame 里的
+   * 元素在快照/定位中完全不存在，与「元素真的不存在」无法区分。
    */
   async function broadcastToFrames<T>(tabId: number, message: ExtensionRequest): Promise<Array<FrameOutcome<T>>> {
     let frames = await listFrames(tabId);
     if (frames.length === 0) frames = [0];
 
-    const collect = () =>
-      Promise.all(
-        frames.map(async (frameId): Promise<FrameOutcome<T>> => {
-          try {
-            const response = (await chrome.tabs.sendMessage(tabId, message, { frameId })) as MessageResponse<T> | undefined;
-            return response?.ok ? { frameId, result: response.data } : { frameId };
-          } catch {
-            return { frameId };
-          }
-        }),
-      );
+    const askFrame = async (frameId: number): Promise<FrameOutcome<T>> => {
+      try {
+        const response = (await chrome.tabs.sendMessage(tabId, message, { frameId })) as MessageResponse<T> | undefined;
+        return response?.ok ? { frameId, result: response.data } : { frameId };
+      } catch {
+        return { frameId };
+      }
+    };
 
-    const outcomes = await collect();
-    if (outcomes.some((outcome) => outcome.result !== undefined)) return outcomes;
+    const outcomes = await Promise.all(frames.map(askFrame));
+    const silent = outcomes.filter((outcome) => outcome.result === undefined);
+    if (silent.length === 0) return outcomes;
 
-    // 全部 frame 无应答：脚本可能尚未注入，注入后重试一次。
     await injectContentScript(tabId);
-    return collect();
+    const retried = await Promise.all(silent.map((outcome) => askFrame(outcome.frameId)));
+    const byFrame = new Map(retried.map((outcome) => [outcome.frameId, outcome]));
+    return outcomes.map((outcome) => byFrame.get(outcome.frameId) ?? outcome);
+  }
+
+  /** 枚举到的 frame 与实际应答的 frame 的差额。用于把「脚本没跑起来」和「元素不存在」区分开。 */
+  function describeSilentFrames(outcomes: readonly FrameOutcome<unknown>[]): string {
+    const silent = outcomes.filter((outcome) => outcome.result === undefined).length;
+    if (silent === 0) return '';
+    return `：${outcomes.length} 个 frame 中有 ${silent} 个未返回内容（脚本未注入或跨源受限），其中的元素不会出现在快照里。请确认白名单已覆盖 iframe 自身的地址，或刷新页面后重试`;
   }
 
   async function listFrames(tabId: number): Promise<number[]> {
@@ -399,6 +519,15 @@ export default defineBackground(() => {
   async function sendToTab(tabId: number, message: ExtensionRequest): Promise<MessageResponse | undefined> {
     try {
       return await chrome.tabs.sendMessage(tabId, message);
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** 定向投递到指定 frame。ref 类操作必须定向：各 frame 的本地 ref 号会撞车。 */
+  async function sendToFrame(tabId: number, message: ExtensionRequest, frameId: number): Promise<MessageResponse | undefined> {
+    try {
+      return await chrome.tabs.sendMessage(tabId, message, { frameId });
     } catch {
       return undefined;
     }

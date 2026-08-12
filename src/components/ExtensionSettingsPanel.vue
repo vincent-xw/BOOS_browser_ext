@@ -5,6 +5,8 @@ import { checkBffConnectivity } from '../agent/agentClient';
 import { listPersistedGrants, revokeDomainGrants } from '../agent/approvalGate';
 import { addAllowRule, loadAllowRules, removeAllowRule } from '../services/permissionService';
 import type { UrlAllowRule } from '../services/urlAllowlist';
+import { clearAllFiles } from '../services/exportService';
+import { ElMessage, ElMessageBox } from 'element-plus';
 
 const props = defineProps<{
   modelValue: boolean;
@@ -118,6 +120,26 @@ async function handleCheckConnectivity() {
 function onSave() {
   emit('save', JSON.parse(JSON.stringify(form)) as AppSettings);
 }
+
+const clearingFiles = ref(false);
+async function handleClearFiles() {
+  try {
+    await ElMessageBox.confirm(
+      '将删除所有通过 agent 生成、截图或上传的文件（含 IndexedDB 中跨会话保存的文件）。此操作不可恢复。',
+      '清空所有文件',
+      { type: 'warning', confirmButtonText: '清空', cancelButtonText: '取消' },
+    );
+  } catch {
+    return;
+  }
+  clearingFiles.value = true;
+  try {
+    await clearAllFiles();
+    ElMessage.success('已清空所有文件');
+  } finally {
+    clearingFiles.value = false;
+  }
+}
 </script>
 
 <template>
@@ -187,6 +209,13 @@ function onSave() {
             <el-text type="info" size="small" style="margin-left: 8px;">
               网络错误与 5xx 自动重试，4xx 不重试
             </el-text>
+          </el-form-item>
+          <el-form-item label="审批">
+            <el-switch
+              v-model="form.advanced.approvalEnabled"
+              active-text="开启审批（写操作需要你逐个批准）"
+              inactive-text="关闭审批（所有写操作自动放行）"
+            />
           </el-form-item>
         </el-form>
       </el-card>
@@ -272,6 +301,18 @@ function onSave() {
         show-icon
         title="提示：任务运行期间目标标签页顶部会出现「正在被调试」提示条。手动关闭它会中止当前任务。"
       />
+
+      <el-card shadow="never">
+        <template #header>
+          <el-text tag="b">存储</el-text>
+        </template>
+        <el-space>
+          <el-button type="danger" plain :loading="clearingFiles" @click="handleClearFiles">
+            清空所有文件与截图
+          </el-button>
+          <el-text type="info" size="small">删除 IndexedDB 中保存的全部 agent 生成文件、截图和上传文件。</el-text>
+        </el-space>
+      </el-card>
 
       <el-button type="primary" :loading="saving" @click="onSave">保存设置</el-button>
     </el-space>

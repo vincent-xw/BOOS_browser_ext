@@ -7,7 +7,7 @@
  * 所有写操作都必须经 Service Worker 的 CDP 通道。
  */
 
-import { DEFAULT_VERIFY_TIMEOUT_MS, VERIFY_POLL_INTERVAL_MS } from '../types/cdp';
+import { DEFAULT_STABLE_MS, DEFAULT_VERIFY_TIMEOUT_MS, DEFAULT_WAIT_TIMEOUT_MS, VERIFY_POLL_INTERVAL_MS } from '../types/cdp';
 import type {
   ElementLocator,
   ElementRect,
@@ -19,9 +19,13 @@ import type {
   VerifyDimension,
   VerifyRequest,
   VerifyResult,
+  WaitForRequest,
+  WaitForResult,
 } from '../types/cdp';
 import { elementCenterInMainFrame, isRectInViewport, roundPoint } from './coordinates';
 import type { FrameOffset } from './coordinates';
+import { classifyCandidate, compareSnapshotCandidates } from './snapshotRanking';
+import type { RankableCandidate } from './snapshotRanking';
 
 /** 解析逗号分隔的选择器列表，去空去重。 */
 export function parseSelectorList(raw: string | undefined): string[] {
@@ -34,12 +38,24 @@ export function parseSelectorList(raw: string | undefined): string[] {
   return [...seen];
 }
 
+/**
+ * 元素是否可见，并把 computedStyle 一起带出来。
+ *
+ * 合并返回是为了性能：getComputedStyle 是快照里最贵的调用，而 cursor 启发式
+ * 也需要它。复用同一个 style 对象，启发式判定几乎不增加额外开销。
+ * 调用方应先用矩形排除零尺寸元素 —— 那一步不读样式，能挡掉绝大多数节点。
+ */
+function inspectVisibility(element: Element): { visible: boolean; style: CSSStyleDeclaration } {
+  const style = window.getComputedStyle(element);
+  const visible = style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
+  return { visible, style };
+}
+
 /** 元素是否可见。零尺寸、display:none、visibility:hidden、opacity:0 都算不可见。 */
 function isVisible(element: Element): boolean {
   const rect = element.getBoundingClientRect();
   if (rect.width <= 0 || rect.height <= 0) return false;
-  const style = window.getComputedStyle(element);
-  return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
+  return inspectVisibility(element).visible;
 }
 
 /** 取元素矩形，转为纯数据对象。 */
@@ -77,12 +93,40 @@ function frameOffsets(): FrameOffset[] {
   return offsets;
 }
 
-/** 中心点命中测试：返回的不是目标元素或其后代，即判定被遮挡。 */
+/**
+ * 命中测试：返回的不是目标元素或其后代，即判定被遮挡。
+ *
+ * 用 elementsFromPoint（复数）遍历整条命中栈，跳过 pointer-events:none 的节点 ——
+ * portal 下拉常在选项上方铺一层透明的全屏 backdrop，用单点 elementFromPoint 会
+ * 把每个选项都判成被遮挡，而 toolExecutor 遇到遮挡直接硬失败，动作根本发不出去。
+ */
 function detectOcclusion(element: Element, point: { x: number; y: number }): { occluded: boolean; occludedBy?: string } {
-  const hit = document.elementFromPoint(point.x, point.y);
-  if (!hit) return { occluded: true, occludedBy: '(视口外或无命中)' };
-  if (hit === element || element.contains(hit) || hit.contains(element)) return { occluded: false };
-  return { occluded: true, occludedBy: describeElement(hit) };
+  const stack = document.elementsFromPoint(point.x, point.y);
+  if (stack.length === 0) return { occluded: true, occludedBy: '(视口外或无命中)' };
+
+  for (const hit of stack) {
+    if (hit === element || element.contains(hit) || hit.contains(element)) return { occluded: false };
+    // 穿透鼠标事件的节点不构成遮挡，正是透明 backdrop 这一类。
+    if (window.getComputedStyle(hit).pointerEvents === 'none') continue;
+    return { occluded: true, occludedBy: describeElement(hit) };
+  }
+
+  return { occluded: true, occludedBy: '(命中栈中无目标元素)' };
+}
+
+/**
+ * 遮挡判定，中心点被压住时再探一个偏移点。
+ *
+ * 图标、角标之类压住正中心的情况很常见，单点判定会误报，而误报的代价是动作被拦。
+ */
+function detectOcclusionWithFallback(element: Element, rect: ElementRect): { occluded: boolean; occludedBy?: string } {
+  const center = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+  const primary = detectOcclusion(element, center);
+  if (!primary.occluded) return primary;
+
+  const offset = { x: rect.x + rect.width * 0.25, y: rect.y + rect.height * 0.25 };
+  const secondary = detectOcclusion(element, offset);
+  return secondary.occluded ? primary : secondary;
 }
 
 /**
@@ -154,9 +198,7 @@ function describeTarget(element: Element, matchedSelector: string): LocateResult
 
   const offsets = frameOffsets();
   const center = roundPoint(elementCenterInMainFrame(rect, offsets));
-  // 命中测试用 frame 内的局部坐标，因为 elementFromPoint 是相对当前 frame 的。
-  const localCenter = roundPoint({ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 });
-  const occlusion = detectOcclusion(element, localCenter);
+  const occlusion = detectOcclusionWithFallback(element, rect);
 
   return {
     found: true,
@@ -244,6 +286,90 @@ export async function verify(request: VerifyRequest, baseline?: Record<string, s
   }
 }
 
+/**
+ * 等待页面达到某状态。
+ *
+ * 下拉/浮层类交互普遍是异步的：点开之后有动画，或者选项要等接口回来才渲染。
+ * 没有这个工具，模型只能靠「再快照一次」自觉重试，经常拍到半渲染的中间态。
+ *
+ * 超时**不抛错**，返回 satisfied=false —— 预期变化没发生本身就是有用的观测结果，
+ * 抛错只会让模型以为工具坏了。
+ */
+export async function waitFor(request: WaitForRequest): Promise<WaitForResult> {
+  const timeoutMs = request.timeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS;
+  const startedAt = Date.now();
+  const deadline = startedAt + timeoutMs;
+  const elapsed = (): number => Date.now() - startedAt;
+
+  if (request.condition === 'stable') {
+    return waitForStable(request.stableMs ?? DEFAULT_STABLE_MS, deadline, startedAt);
+  }
+
+  const selector = request.selector?.trim();
+  if (!selector) {
+    return {
+      satisfied: false,
+      waitedMs: 0,
+      condition: request.condition,
+      observed: `condition=${request.condition} 需要提供 selector。`,
+    };
+  }
+
+  const wantVisible = request.condition === 'appear';
+  for (;;) {
+    const present = queryAll(selector).some(isVisible);
+    if (present === wantVisible) {
+      return {
+        satisfied: true,
+        waitedMs: elapsed(),
+        condition: request.condition,
+        observed: wantVisible ? `${selector} 已出现` : `${selector} 已消失`,
+      };
+    }
+    if (Date.now() >= deadline) {
+      return {
+        satisfied: false,
+        waitedMs: elapsed(),
+        condition: request.condition,
+        observed: wantVisible ? `等待 ${timeoutMs}ms 后 ${selector} 仍未出现` : `等待 ${timeoutMs}ms 后 ${selector} 仍然存在`,
+      };
+    }
+    await sleep(VERIFY_POLL_INTERVAL_MS);
+  }
+}
+
+/**
+ * 等 DOM 停止变化：连续 stableMs 内没有 mutation 即认为稳定。
+ *
+ * 页面上有轮询定时器时永远不会静默，此时会耗到超时并返回 satisfied=false ——
+ * 这是有意的，让模型知道「页面一直在变」而不是无限等下去。
+ */
+function waitForStable(stableMs: number, deadline: number, startedAt: number): Promise<WaitForResult> {
+  return new Promise((resolve) => {
+    let quietTimer: ReturnType<typeof setTimeout> | undefined;
+    let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+    const observer = new MutationObserver(() => restartQuietTimer());
+
+    const finish = (satisfied: boolean, observed: string): void => {
+      if (quietTimer !== undefined) clearTimeout(quietTimer);
+      if (deadlineTimer !== undefined) clearTimeout(deadlineTimer);
+      observer.disconnect();
+      resolve({ satisfied, waitedMs: Date.now() - startedAt, condition: 'stable', observed });
+    };
+
+    function restartQuietTimer(): void {
+      if (quietTimer !== undefined) clearTimeout(quietTimer);
+      quietTimer = setTimeout(() => finish(true, `DOM 连续 ${stableMs}ms 未变化`), stableMs);
+    }
+
+    observer.observe(document.documentElement, { subtree: true, childList: true, attributes: true, characterData: true });
+    restartQuietTimer();
+
+    const remaining = Math.max(0, deadline - Date.now());
+    deadlineTimer = setTimeout(() => finish(false, `等待期间 DOM 持续变化，未出现 ${stableMs}ms 的静默窗口`), remaining);
+  });
+}
+
 /** 逐维度求值。只评估调用方实际给出的维度。 */
 function evaluate(request: VerifyRequest, baseline?: Record<string, string>): VerifyDimension[] {
   const dimensions: VerifyDimension[] = [];
@@ -323,11 +449,59 @@ const INTERACTIVE_SELECTOR = [
   '[role=radio]',
   '[role=tab]',
   '[role=menuitem]',
+  '[role=menuitemcheckbox]',
+  '[role=menuitemradio]',
   '[role=combobox]',
   '[role=searchbox]',
+  '[role=option]',
+  '[role=treeitem]',
+  '[role=switch]',
+  '[aria-expanded]',
+  '[aria-haspopup]',
+  '[aria-selected]',
   '[onclick]',
   '[tabindex]:not([tabindex="-1"])',
 ].join(',');
+
+/**
+ * 弹层/浮层容器。各种 UI 库的下拉都会 portal 到 body 下的这类容器里。
+ *
+ * 这是本方案的关键：Element UI 的 li.el-select-dropdown__item 没有 href / role /
+ * onclick / tabindex，一条显式选择器都不匹配，此前完全进不了快照 —— 模型看不见，
+ * 只能瞎猜坐标。改为「先找浮层容器，再扫容器内的条目」把它们捞出来。
+ */
+const POPUP_CONTAINER_SELECTOR = [
+  '[role=listbox]',
+  '[role=menu]',
+  '[role=dialog]',
+  '[role=tree]',
+  '[aria-modal=true]',
+  '[class*=dropdown]',
+  '[class*=popper]',
+  '[class*=popover]',
+  '[class*=select]',
+  '[class*=picker]',
+  '[class*=cascader]',
+].join(',');
+
+/** 浮层内的候选条目。范围窄，只在已确认可见的浮层容器内使用。 */
+const POPUP_ITEM_SELECTOR = ['li', '[class*=option]', '[class*=item]', '[class*=cell]'].join(',');
+
+/**
+ * cursor 探测的候选标签。
+ *
+ * 自定义控件多是 div/span 加事件监听，没有任何可被选择器识别的语义标记，
+ * 只能靠 cursor:pointer 认出来。范围限定在这些常见容器标签，不扫全部元素。
+ */
+const CURSOR_PROBE_SELECTOR = ['div', 'span', 'li', 'td', 'label', 'p'].join(',');
+
+/**
+ * cursor 探测的候选上限。
+ *
+ * getComputedStyle 是快照里最贵的调用，绝不能全文档扫 div/span。这个上限只作用于
+ * 浮层内候选，正常页面远达不到。
+ */
+const CURSOR_PROBE_LIMIT = 400;
 
 /** 快照单页最多返回的元素数。超出会截断并告知模型。 */
 const SNAPSHOT_LIMIT = 150;
@@ -380,36 +554,34 @@ function inferLabel(element: Element): string {
 export function snapshotInteractive(): PageSnapshotResult {
   const viewport = { width: window.innerWidth, height: window.innerHeight };
   const offsets = frameOffsets();
-  const entries: SnapshotEntry[] = [];
-  let skipped = 0;
+  const activeElement = document.activeElement;
 
-  let elements: Element[];
-  try {
-    elements = [...document.querySelectorAll(INTERACTIVE_SELECTOR)];
-  } catch {
-    elements = [];
-  }
+  const candidates = collectCandidates(viewport, activeElement);
+  // 排序决定截断时谁能留下：浮层内的元素往往在文档末尾（portal 到 body），
+  // 不排序就会被上限砍掉 —— 而它恰恰是用户刚点开、当下最相关的东西。
+  candidates.sort(compareSnapshotCandidates);
 
-  for (const element of elements) {
-    if (!isVisible(element)) continue;
-    const rect = toRect(element);
-    if (!isRectInViewport(rect, viewport)) continue;
-    if (entries.length >= SNAPSHOT_LIMIT) {
-      skipped += 1;
-      continue;
-    }
+  const kept = candidates.slice(0, SNAPSHOT_LIMIT);
+  const skipped = candidates.length - kept.length;
 
+  // ref 在截断之后才铸：在扫描过程中铸会让被丢弃的元素白占 ref 号。
+  const refByElement = new Map<Element, number>();
+  for (const candidate of kept) {
     const ref = nextRef;
     nextRef += 1;
-    refRegistry.set(ref, new WeakRef(element));
+    refRegistry.set(ref, new WeakRef(candidate.element));
+    refByElement.set(candidate.element, ref);
+  }
 
+  const entries: SnapshotEntry[] = kept.map((candidate) => {
+    const { element, rect } = candidate;
     const center = roundPoint(elementCenterInMainFrame(rect, offsets));
-    const localCenter = roundPoint({ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 });
-    const occlusion = detectOcclusion(element, localCenter);
+    const occlusion = detectOcclusionWithFallback(element, rect);
     const value = element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement ? element.value : undefined;
+    const parent = findParentRef(element, refByElement);
 
-    entries.push({
-      ref,
+    return {
+      ref: refByElement.get(element) as number,
       tag: element.tagName.toLowerCase(),
       label: inferLabel(element),
       kind: inferKind(element),
@@ -420,16 +592,131 @@ export function snapshotInteractive(): PageSnapshotResult {
       ...(occlusion.occluded ? { occluded: true } : {}),
       ...(isDisabled(element) ? { disabled: true } : {}),
       ...(value ? { value: value.slice(0, 120) } : {}),
-    });
-  }
+      ...(parent === undefined ? {} : { parent }),
+      ...(candidate.expanded ? { expanded: true } : {}),
+      ...(candidate.inPopup ? { inPopup: true } : {}),
+      ...(candidate.soft ? { soft: true } : {}),
+    };
+  });
 
   return {
     url: window.location.href,
     title: document.title,
     entries,
     ...(skipped > 0 ? { truncated: skipped } : {}),
-    frameId: window === window.top ? 'main' : window.location.href,
+    sourceFrame: window === window.top ? 'main' : window.location.href,
   };
+}
+
+/** 快照候选：DOM 引用 + 排序所需的元数据。 */
+interface SnapshotCandidate extends RankableCandidate {
+  element: Element;
+  rect: ElementRect;
+  expanded?: boolean;
+  soft?: boolean;
+}
+
+/**
+ * 收集候选元素：显式可交互 + 浮层内条目。
+ *
+ * 分两阶段是为了性能。阶段一是纯 CSS 匹配；阶段二只在**已确认可见**的浮层容器内
+ * 扫描，cursor 探测也只在这个范围内做，绝不全文档扫 div/span。
+ */
+function collectCandidates(viewport: { width: number; height: number }, activeElement: Element | null): SnapshotCandidate[] {
+  const candidates: SnapshotCandidate[] = [];
+  const seen = new Set<Element>();
+  let index = 0;
+  let cursorProbes = 0;
+
+  const popupContainers = queryAll(POPUP_CONTAINER_SELECTOR).filter(isVisible);
+  const inPopupContainer = (element: Element): boolean => popupContainers.some((container) => container.contains(element));
+
+  /** 通过可见性与视口检查后登记候选。 */
+  const consider = (element: Element, explicit: boolean): void => {
+    if (seen.has(element)) return;
+
+    // 先做纯几何判断：不读样式，能把绝大多数节点挡在 getComputedStyle 之前。
+    const rect = toRect(element);
+    if (rect.width <= 0 || rect.height <= 0) return;
+    const insidePopup = inPopupContainer(element);
+    // 浮层内的元素豁免视口检查：长下拉列表下半截本来就在视口外，
+    // 但它是可滚动到的，resolveRef 动作前会 scrollIntoView。
+    if (!insidePopup && !isRectInViewport(rect, viewport)) return;
+
+    const { visible, style } = inspectVisibility(element);
+    if (!visible) return;
+
+    // cursor 只对非显式候选才需要读，且总数有上限。
+    let cursor: string | undefined;
+    if (!explicit && cursorProbes < CURSOR_PROBE_LIMIT) {
+      cursor = style.cursor;
+      cursorProbes += 1;
+    }
+
+    const classified = classifyCandidate({
+      explicit,
+      ariaExpanded: element.getAttribute('aria-expanded'),
+      ...(cursor === undefined ? {} : { cursor }),
+      inPopupContainer: insidePopup,
+    });
+    if (!classified.include) return;
+
+    seen.add(element);
+    candidates.push({
+      element,
+      rect,
+      index: index++,
+      inPopup: classified.inPopup === true,
+      nearFocus: isNearFocus(element, activeElement),
+      tier: classified.tier,
+      ...(classified.expanded ? { expanded: true } : {}),
+      ...(classified.soft ? { soft: true } : {}),
+    });
+  };
+
+  // 阶段一：显式可交互元素。先跑，保证真实控件不会被标成 soft。
+  for (const element of queryAll(INTERACTIVE_SELECTOR)) consider(element, true);
+
+  // 阶段二：浮层容器内的条目。UI 库下拉项在这里被捞出来。
+  for (const container of popupContainers) {
+    for (const element of queryAll(POPUP_ITEM_SELECTOR, container)) consider(element, false);
+  }
+
+  // 阶段三：视口内靠 cursor:pointer 识别的自定义控件（卡片、自绘开关等）。
+  // 放在最后跑，前两阶段已收录的元素会被 seen 挡掉，不会被降级成 soft。
+  // 成本可控的关键是先做矩形与视口判断：它不读样式，能把绝大多数节点挡在 getComputedStyle 之前。
+  for (const element of queryAll(CURSOR_PROBE_SELECTOR)) {
+    if (cursorProbes >= CURSOR_PROBE_LIMIT) break;
+    consider(element, false);
+  }
+
+  return candidates;
+}
+
+/** querySelectorAll 的安全包装：非法选择器不该让整个快照挂掉。 */
+function queryAll(selector: string, root: ParentNode = document): Element[] {
+  try {
+    return [...root.querySelectorAll(selector)];
+  } catch {
+    return [];
+  }
+}
+
+/** 元素是否与当前焦点同处一个区域。用于排序时让焦点附近的内容优先。 */
+function isNearFocus(element: Element, activeElement: Element | null): boolean {
+  if (!activeElement || activeElement === document.body) return false;
+  return element === activeElement || activeElement.contains(element) || element.contains(activeElement);
+}
+
+/** 找最近的、本身也在快照里的祖先 ref。扁平列表靠它表达层级。 */
+function findParentRef(element: Element, refByElement: Map<Element, number>): number | undefined {
+  let current = element.parentElement;
+  while (current) {
+    const ref = refByElement.get(current);
+    if (ref !== undefined) return ref;
+    current = current.parentElement;
+  }
+  return undefined;
 }
 
 /**
@@ -460,8 +747,7 @@ export function resolveRef(ref: number): RefResolution {
   }
 
   const center = roundPoint(elementCenterInMainFrame(rect, frameOffsets()));
-  const localCenter = roundPoint({ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 });
-  const occlusion = detectOcclusion(element, localCenter);
+  const occlusion = detectOcclusionWithFallback(element, rect);
 
   return {
     found: true,

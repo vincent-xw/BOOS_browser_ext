@@ -6,19 +6,45 @@ import { createApprovalGate, summarizeAction } from '../agent/approvalGate';
 import type { ApprovalDecision, ApprovalRequest, GrantScope } from '../agent/approvalGate';
 import { createMessageSender } from '../agent/toolExecutor';
 import { cdpActionService } from '../services/cdpActionService';
-import { hasUrlPermission, loadAllowRules, requestPermissionForUrl } from '../services/permissionService';
+import { hasUrlPermission, loadAllowRules, requestPermissionForUrl, addAllowRule } from '../services/permissionService';
 import {
   deleteSession,
   getSession,
   loadSessions,
   newSessionId,
   saveSession,
+  buildTitlePrompt,
 } from '../services/freeFormSessionStore';
 import type { ConversationTurn, StoredSession } from '../services/freeFormSessionStore';
 import { isUrlAllowed } from '../services/urlAllowlist';
 import { settingsService } from '../services/settingsService';
+import { useFileAttachments } from './useFileAttachments';
 import { MessageType } from '../types/messages';
 import type { OperationError, OperationState } from '../types/page-io';
+
+/**
+ * 传给计划阶段的正文摘要上限。
+ * 足够判断「这是哪个页面、上面有什么」，又不至于把长列表页的全文灌进上下文。
+ */
+const PAGE_TEXT_LIMIT = 1500;
+
+/**
+ * 构造当前日期上下文。
+ *
+ * 模型没有可靠的「今天」锚点：日期相对指令（最近一周、上个月、下周三）若不告诉它
+ * 今天是几号、星期几，它会靠猜测推算，常见症状是算出一个既不是上周也不是下周的
+ * 莫名其妙的区间。这里同时显式说明「最近一周」的默认口径，减少歧义。
+ */
+function buildDateContext(): string {
+  const now = new Date();
+  const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  const weekAgo = new Date(now.getTime() - 6 * 24 * 60 * 60 * 1000);
+  const wa = `${weekAgo.getFullYear()}-${String(weekAgo.getMonth() + 1).padStart(2, '0')}-${String(weekAgo.getDate()).padStart(2, '0')}`;
+  return `今天是 ${y}-${m}-${d}（${weekdays[now.getDay()]}）。涉及日期范围时，「最近一周 / 近 7 天」若无特别说明指从今天往前推 7 天（${wa} 至 ${y}-${m}-${d}，含今天），不要理解成某个自然周或未来的一周。`;
+}
 
 /** 工具错误码到可读中文的映射。未知错误码走兜底。 */
 const TOOL_ERROR_LABELS: Record<string, string> = {
@@ -78,6 +104,8 @@ export function useFreeFormController() {
 
   const settings = ref(settingsService.load().normalized);
   let abortController: AbortController | null = null;
+
+  const attachments = useFileAttachments();
 
   /** 计划阶段的输出。非空时 UI 展示计划等待用户确认。 */
   const pendingPlan = ref<TaskPlan | null>(null);
@@ -139,8 +167,19 @@ export function useFreeFormController() {
     if (requestingPermission.value) return { ok: false, message: '正在申请中...' };
     requestingPermission.value = true;
     try {
+      // 同时申请 Chrome host 权限和写入白名单，避免用户需要授权两次。
+      // 先请求权限，再写入白名单；权限被拒则白名单不写。
       const result = await requestPermissionForUrl(currentUrl.value);
-      if (result.ok) await refreshPageContext();
+      if (result.ok) {
+        try {
+          const parsed = new URL(currentUrl.value);
+          const domain = parsed.hostname;
+          await addAllowRule({ domain, pathPrefix: '' });
+        } catch {
+          // 白名单写入失败不影响本次授权，只是下次还需要手动添加。
+        }
+        await refreshPageContext();
+      }
       return { ok: result.ok, message: result.message };
     } finally {
       requestingPermission.value = false;
@@ -187,11 +226,33 @@ export function useFreeFormController() {
         // 快照失败不阻断计划 -- 模型仍可基于指令评估，只是看不到当前页面。
       }
 
+      // 正文摘要单独取：快照只有可交互元素列表，没有正文，模型看得到一堆按钮
+      // 却不知道页面在讲什么，判断不出「已经在目标结果页」。
+      let pageText = '';
+      try {
+        const page = await send<{ bodyPreview?: string }>({ type: MessageType.ContentReadPage, tabId });
+        pageText = page?.bodyPreview ?? '';
+      } catch {
+        // 读正文失败不阻断计划。
+      }
+
+      const fileList = attachments.buildFileList();
+      const context: Record<string, unknown> = {};
+      if (snapshot) context.snapshot = snapshot;
+      if (fileList.length) context.fileList = fileList;
+      // 日期锚点：模型没有可靠的「今天」，缺了它会把「最近一周」算成莫名其妙的区间。
+      context.currentDate = buildDateContext();
+      // URL / 标题 / 正文摘要让模型能判断当前页面是否已满足目标，从而跳过重复流程
+      // （例如已经停在某个搜索结果页时不必再走一遍搜索）。
+      if (tab?.url) context.currentUrl = tab.url;
+      if (tab?.title) context.pageTitle = tab.title;
+      if (pageText) context.pageText = pageText.slice(0, PAGE_TEXT_LIMIT);
+
       const result = await runAgent(
         toBffConfig(settings.value),
         sessionId.value,
         text,
-        snapshot ? { snapshot } : {},
+        context,
         'planning',
         true, // skipTools: 计划阶段不让模型调工具
       );
@@ -270,26 +331,46 @@ export function useFreeFormController() {
     }
 
     try {
+      const fileList = attachments.buildFileList();
+      const context: Record<string, unknown> = {};
+      if (fileList.length) context.fileList = fileList;
+      // 日期锚点同计划阶段：执行阶段用户可能直接说「选最近一周」，缺了今天的日期一样会算错。
+      context.currentDate = buildDateContext();
+      // 执行阶段同样给出页面身份：用户可能跳过计划直接执行，
+      // 缺了它模型只能靠快照猜自己在哪一页。
+      if (currentUrl.value) context.currentUrl = currentUrl.value;
+      if (currentTitle.value) context.pageTitle = currentTitle.value;
+
       const result = await runAgentSession(text, {
         config: toBffConfig(settings.value),
         sessionId: sessionId.value,
         tabId,
         send,
-        approval: approvalGate,
+        ...(settings.value.advanced.approvalEnabled ? { approval: approvalGate } : {}),
         currentUrl: currentUrl.value,
         maxSteps: settings.value.advanced.maxSteps,
         signal: abortController.signal,
+        context,
         onStep: (event) => {
           currentSteps.value = [...currentSteps.value, { ...event, output: humanizeStepOutput(event.output) }];
         },
       });
       appendTurn('agent', formatOutput(result.output), currentSteps.value);
       runState.value = 'succeeded';
+      // agent 回复后异步生成会话标题（不阻塞 UI）。
+      void generateSessionTitle();
     } catch (error) {
       const message = error instanceof BffError ? error.message : error instanceof Error ? error.message : String(error);
+      const bff = error instanceof BffError ? error : null;
       runState.value = 'failed';
-      runError.value = { code: 'EXECUTION_FAILED', message };
-      appendTurn('error', message, currentSteps.value);
+      // 保留 BFF 原码与 requestId：它们是和服务端日志对上的唯一线索，诊断日志要用。
+      runError.value = {
+        code: 'EXECUTION_FAILED',
+        message,
+        ...(bff?.code ? { bffCode: bff.code } : {}),
+        ...(bff?.requestId ? { requestId: bff.requestId } : {}),
+      };
+      appendTurn('error', message, currentSteps.value, runError.value);
     } finally {
       // 任务结束即释放调试连接，调试横幅不该长期挂在页面上。
       await cdpActionService.detach();
@@ -297,13 +378,53 @@ export function useFreeFormController() {
     }
   }
 
-  function appendTurn(role: ConversationTurn['role'], text: string, steps?: StepEvent[]): void {
+  function appendTurn(role: ConversationTurn['role'], text: string, steps?: StepEvent[], error?: OperationError): void {
     turns.value = [
       ...turns.value,
-      { role, text, timestamp: new Date().toISOString(), ...(steps && steps.length ? { steps: [...steps] } : {}) },
+      {
+        role,
+        text,
+        timestamp: new Date().toISOString(),
+        ...(steps && steps.length ? { steps: [...steps] } : {}),
+        ...(error ? { error } : {}),
+      },
     ];
     // 每轮都落库：sessionId 是切回旧会话的唯一凭据，丢了它 BFF 侧的上下文就不可达了。
     void saveSession({ id: sessionId.value, turns: turns.value });
+  }
+
+  /**
+   * 用 LLM 为当前会话生成一个简短标题。
+   *
+   * 只在 agent 首次回复后执行一次（titleGenerated=false 时才跑）。
+   * 调 BFF 的 run 接口，用 planning prompt（skipTools，纯文本输出），
+   * 让模型根据用户指令和执行结果生成一个 10-20 字的标题。
+   * 失败时静默 -- 标题不生成不影响功能，只是列表展示用截断的指令文本。
+   */
+  async function generateSessionTitle(): Promise<void> {
+    try {
+      const existing = sessions.value.find((s) => s.id === sessionId.value);
+      if (existing?.titleGenerated) return;
+
+      const titlePrompt = buildTitlePrompt(turns.value);
+      const result = await runAgent(
+        toBffConfig(settings.value),
+        sessionId.value,
+        `根据以下对话内容，生成一个10-20字的中文标题，概括这个任务的主题。只输出标题文本，不要标点、不要解释、不要引号。\n\n${titlePrompt}`,
+        {},
+        'planning',
+      );
+
+      if (result.type !== 'final') return;
+      const title = String(result.output).trim().slice(0, 30);
+      if (!title) return;
+
+      // 更新会话标题并标记为已生成。
+      await saveSession({ id: sessionId.value, turns: turns.value, title, titleGenerated: true });
+      await refreshSessions();
+    } catch {
+      // 标题生成失败不影响功能。
+    }
   }
 
   /** 刷新会话列表。 */
@@ -337,11 +458,14 @@ export function useFreeFormController() {
   }
 
   /** 停止当前任务。 */
+  const isStopping = ref(false);
   async function stop(): Promise<void> {
+    isStopping.value = true;
     abortController?.abort();
     // 若正卡在审批对话框上，一并按拒绝处理，否则 Promise 永远不会 resolve。
     approvalResolver?.({ approved: false, reason: '任务已被停止。' });
     await cdpActionService.detach();
+    isStopping.value = false;
   }
 
   /**
@@ -386,6 +510,7 @@ export function useFreeFormController() {
     rejectPlan,
     submitInstruction,
     stop,
+    isStopping,
     startNewSession,
     switchSession,
     removeSession,
@@ -393,6 +518,7 @@ export function useFreeFormController() {
     refreshPageContext,
     summarizeAction,
     MessageType,
+    attachments,
   };
 }
 

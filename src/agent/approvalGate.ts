@@ -75,6 +75,8 @@ export function summarizeAction(toolName: string, input: unknown): string {
   switch (toolName) {
     case 'browser_click':
       return `点击 ${target || '目标元素'} ${at}`.trim();
+    case 'browser_hover':
+      return `悬停在 ${target || '目标元素'} ${at}`.trim();
     case 'browser_input_text': {
       const text = typeof record.text === 'string' ? record.text : '';
       const preview = text.length > 40 ? `${text.slice(0, 40)}…` : text;

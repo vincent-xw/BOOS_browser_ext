@@ -12,6 +12,8 @@ export interface AdvancedSettings {
   maxSteps: number;
   /** LLM 请求最大重试次数（0-5），默认 3。只重试网络错误与 5xx/429。 */
   llmMaxRetries: number;
+  /** 是否启用审批。关闭后所有写操作自动放行，不再弹出审批对话框。 */
+  approvalEnabled: boolean;
 }
 
 export interface AppSettings {
@@ -46,5 +48,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
     bffRequestTimeoutMs: 60000,
     maxSteps: 50,
     llmMaxRetries: 3,
+    approvalEnabled: true,
   },
 };

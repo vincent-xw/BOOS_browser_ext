@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { ElMessage } from 'element-plus';
 import { Collection, Setting, Tickets } from '@element-plus/icons-vue';
 import ExtensionAppShell from '../../src/components/ExtensionAppShell.vue';
@@ -45,6 +45,8 @@ const statusMessage = computed(() =>
 
 const statusType = computed(() => (bffConfigured.value ? 'info' : 'warning'));
 
+const settingsSaved = ref(0);
+
 function handleSaveSettings(next: AppSettings) {
   settingsSaving.value = true;
   try {
@@ -54,6 +56,7 @@ function handleSaveSettings(next: AppSettings) {
     if (saved.valid) {
       ElMessage.success('设置已保存');
       settingsVisible.value = false;
+      settingsSaved.value++;
     } else {
       ElMessage.warning(saved.issues.join('；'));
     }
@@ -113,7 +116,7 @@ onMounted(() => {
         description="模型凭据由 BFF 持有，扩展不保存。请在设置中填写 BFF 地址与接入 token。"
       />
 
-      <FreeFormPanel :skill-to-apply="skillToApply" @skill-applied="skillToApply = null" />
+      <FreeFormPanel :skill-to-apply="skillToApply" :settings-saved="settingsSaved" @skill-applied="skillToApply = null" />
 
       <SkillPanel v-model="skillPanelVisible" @apply="handleApplySkill" />
     </div>
