@@ -72,6 +72,7 @@ export function mergeFrameSnapshots(snapshots: readonly FrameSnapshot[]): Merged
       url: main?.result.url ?? '',
       title: main?.result.title ?? '',
       entries,
+      ...(main?.result.viewport ? { viewport: main.result.viewport } : {}),
       ...(truncated > 0 ? { truncated } : {}),
     },
     owners,

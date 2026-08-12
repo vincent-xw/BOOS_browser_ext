@@ -29,11 +29,12 @@ import type { OperationError, OperationState } from '../types/page-io';
 const PAGE_TEXT_LIMIT = 1500;
 
 /**
- * 构造当前日期上下文。
+ * 构造当前时间上下文。
  *
- * 模型没有可靠的「今天」锚点：日期相对指令（最近一周、上个月、下周三）若不告诉它
- * 今天是几号、星期几，它会靠猜测推算，常见症状是算出一个既不是上周也不是下周的
- * 莫名其妙的区间。这里同时显式说明「最近一周」的默认口径，减少歧义。
+ * 模型没有可靠的「现在」锚点：相对时间指令（最近一周、上个月、下周三、今天上午）
+ * 若不告诉它现在是几号、星期几、几点、什么时区，它会靠猜测推算，常见症状是算出
+ * 一个既不是上周也不是下周的莫名其妙的区间。这里同时显式钉死几个高频相对口径，
+ * 减少自然语言歧义。
  */
 function buildDateContext(): string {
   const now = new Date();
@@ -41,9 +42,38 @@ function buildDateContext(): string {
   const y = now.getFullYear();
   const m = String(now.getMonth() + 1).padStart(2, '0');
   const d = String(now.getDate()).padStart(2, '0');
+  const hh = String(now.getHours()).padStart(2, '0');
+  const mm = String(now.getMinutes()).padStart(2, '0');
+
+  // 滚动 7 天：含今天往前 6 天。
   const weekAgo = new Date(now.getTime() - 6 * 24 * 60 * 60 * 1000);
-  const wa = `${weekAgo.getFullYear()}-${String(weekAgo.getMonth() + 1).padStart(2, '0')}-${String(weekAgo.getDate()).padStart(2, '0')}`;
-  return `今天是 ${y}-${m}-${d}（${weekdays[now.getDay()]}）。涉及日期范围时，「最近一周 / 近 7 天」若无特别说明指从今天往前推 7 天（${wa} 至 ${y}-${m}-${d}，含今天），不要理解成某个自然周或未来的一周。`;
+  const fmt = (date: Date) =>
+    `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  const wa = fmt(weekAgo);
+
+  // 本周与上周按周一为一周起点计算（中文后台系统的常见口径）。
+  const dow = (now.getDay() + 6) % 7; // 周一=0 … 周日=6
+  const monday = new Date(now);
+  monday.setDate(now.getDate() - dow);
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  const lastMonday = new Date(monday);
+  lastMonday.setDate(monday.getDate() - 7);
+  const lastSunday = new Date(monday);
+  lastSunday.setDate(monday.getDate() - 1);
+
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '未知时区';
+  const locale = navigator.language || '未知';
+
+  return [
+    `现在是 ${y}-${m}-${d}（${weekdays[now.getDay()]}）${hh}:${mm}，时区 ${tz}，界面语言 ${locale}。`,
+    `日期一律按 YYYY-MM-DD 格式，时间按 24 小时制。`,
+    `相对口径（无特别说明时按此理解，不要算成未来或自然周）：`,
+    `· 最近一周 / 近 7 天：${wa} 至 ${y}-${m}-${d}（含今天）；`,
+    `· 本周：${fmt(monday)} 至 ${fmt(sunday)}（周一到周日）；`,
+    `· 上周：${fmt(lastMonday)} 至 ${fmt(lastSunday)}；`,
+    `· 「今天」以 ${y}-${m}-${d} 为准，不要用模型自身的训练日期。`,
+  ].join(' ');
 }
 
 /** 工具错误码到可读中文的映射。未知错误码走兜底。 */

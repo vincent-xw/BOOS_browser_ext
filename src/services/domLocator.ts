@@ -603,6 +603,9 @@ export function snapshotInteractive(): PageSnapshotResult {
     url: window.location.href,
     title: document.title,
     entries,
+    // 视口尺寸让模型判断坐标是否在可见区域、是否需要滚动。只取主 frame：
+    // 子 frame 的 viewport 是它自己的，而快照坐标已换算到主 frame 坐标系。
+    ...(window === window.top ? { viewport: { width: viewport.width, height: viewport.height } } : {}),
     ...(skipped > 0 ? { truncated: skipped } : {}),
     sourceFrame: window === window.top ? 'main' : window.location.href,
   };

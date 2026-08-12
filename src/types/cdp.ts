@@ -57,6 +57,8 @@ export interface PageSnapshotResult {
   url: string;
   title: string;
   entries: SnapshotEntry[];
+  /** 主 frame 视口尺寸（CSS 像素）。快照坐标都是相对它的，模型据此判断哪些元素要滚动才可见。 */
+  viewport?: { width: number; height: number };
   /** 超出上限被省略的元素数量。必须告知模型，否则它会以为看到了全部。 */
   truncated?: number;
   /** 快照来源 frame 的可读标识，仅用于日志排查。frame 归属以 SnapshotEntry.frameId 为准。 */
