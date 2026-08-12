@@ -28,6 +28,24 @@ import type { OperationError, OperationState } from '../types/page-io';
  */
 const PAGE_TEXT_LIMIT = 1500;
 
+/**
+ * 构造当前日期上下文。
+ *
+ * 模型没有可靠的「今天」锚点：日期相对指令（最近一周、上个月、下周三）若不告诉它
+ * 今天是几号、星期几，它会靠猜测推算，常见症状是算出一个既不是上周也不是下周的
+ * 莫名其妙的区间。这里同时显式说明「最近一周」的默认口径，减少歧义。
+ */
+function buildDateContext(): string {
+  const now = new Date();
+  const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  const weekAgo = new Date(now.getTime() - 6 * 24 * 60 * 60 * 1000);
+  const wa = `${weekAgo.getFullYear()}-${String(weekAgo.getMonth() + 1).padStart(2, '0')}-${String(weekAgo.getDate()).padStart(2, '0')}`;
+  return `今天是 ${y}-${m}-${d}（${weekdays[now.getDay()]}）。涉及日期范围时，「最近一周 / 近 7 天」若无特别说明指从今天往前推 7 天（${wa} 至 ${y}-${m}-${d}，含今天），不要理解成某个自然周或未来的一周。`;
+}
+
 /** 工具错误码到可读中文的映射。未知错误码走兜底。 */
 const TOOL_ERROR_LABELS: Record<string, string> = {
   TOOL_NOT_ALLOWED: '当前不支持这类操作',
@@ -222,6 +240,8 @@ export function useFreeFormController() {
       const context: Record<string, unknown> = {};
       if (snapshot) context.snapshot = snapshot;
       if (fileList.length) context.fileList = fileList;
+      // 日期锚点：模型没有可靠的「今天」，缺了它会把「最近一周」算成莫名其妙的区间。
+      context.currentDate = buildDateContext();
       // URL / 标题 / 正文摘要让模型能判断当前页面是否已满足目标，从而跳过重复流程
       // （例如已经停在某个搜索结果页时不必再走一遍搜索）。
       if (tab?.url) context.currentUrl = tab.url;
@@ -314,6 +334,8 @@ export function useFreeFormController() {
       const fileList = attachments.buildFileList();
       const context: Record<string, unknown> = {};
       if (fileList.length) context.fileList = fileList;
+      // 日期锚点同计划阶段：执行阶段用户可能直接说「选最近一周」，缺了今天的日期一样会算错。
+      context.currentDate = buildDateContext();
       // 执行阶段同样给出页面身份：用户可能跳过计划直接执行，
       // 缺了它模型只能靠快照猜自己在哪一页。
       if (currentUrl.value) context.currentUrl = currentUrl.value;
