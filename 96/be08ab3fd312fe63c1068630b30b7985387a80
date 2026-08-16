@@ -1,0 +1,44 @@
+src/agent/toolExecutor.test.ts
+  s_37e1731660abd0::t_33a0f5c1e67478 181
+  s_37e1731660abd0::t_f8e4f45ed48bd8 139,141-142,146,148-149
+  s_37e1731660abd0::t_658e04dafd4ced 164-180,182-184
+src/services/freeFormDiagnostics.test.ts
+  s_e42af3720477b4::t_6bac854724c678 62-76
+src/agent/toolExecutor.ts
+  s_37e1731660abd0::t_f4c78cfe4755f7 277
+  s_37e1731660abd0::t_5f087ec97b245b 335-343
+  s_37e1731660abd0::t_cdf816cb70c89a 234
+  s_37e1731660abd0::t_b7d5ba540da90d 276,278-288
+  s_37e1731660abd0::t_69a68fa4fe2376 350-364
+src/services/freeFormDiagnostics.ts
+  s_e42af3720477b4::t_7bbdcfcfc43976 74-82,93
+  s_e42af3720477b4::t_ef1000a4eacfb1 22-23,29-30
+src/components/FreeFormPanel.vue
+  s_e42af3720477b4::t_3ab67a8f5178b7 577
+  s_e42af3720477b4::t_710da8a04c09f9 323,327,335-343
+  s_e42af3720477b4::t_9bc3003eb82bcd 498,504
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "96be08ab3fd312fe63c1068630b30b7985387a80",
+  "prompts": {},
+  "sessions": {
+    "s_37e1731660abd0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8480a82f-2438-478d-9b03-0d0dae77377c",
+        "model": "auto"
+      },
+      "human_author": "xuewen.jia <xuewen.jia@ly.com>"
+    },
+    "s_e42af3720477b4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "000c7e8f-6e8f-4e75-8258-4bbc1d679c18",
+        "model": "auto"
+      },
+      "human_author": "xuewen.jia <xuewen.jia@ly.com>"
+    }
+  }
+}
