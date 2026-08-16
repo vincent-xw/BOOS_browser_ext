@@ -320,10 +320,11 @@ function copyTurnText(text: string, index: number) {
 }
 
 /**
- * 复制失败轮次的诊断日志，供用户贴给大模型排查。
+ * 复制一轮的执行日志，供用户贴给大模型排查。
  *
  * 有意包含完整的工具入参出参 —— 省略掉的往往正是关键。代价是可能含简历/沟通原文，
  * 所以 toast 必须提示，让用户外发前自己过一眼。
+ * error 轮带错误段；agent 轮带结果段；两者都附完整步骤与环境。
  */
 async function copyDiagnosticLog(turn: ConversationTurn) {
   const text = formatFreeFormDiagnostic({
@@ -331,11 +332,15 @@ async function copyDiagnosticLog(turn: ConversationTurn) {
     timestamp: turn.timestamp,
     extensionVersion: chrome.runtime.getManifest().version,
     url: currentUrl.value,
-    error: {
-      code: turn.error?.bffCode ?? turn.error?.code ?? 'UNKNOWN',
-      message: turn.error?.message ?? turn.text,
-      ...(turn.error?.requestId ? { requestId: turn.error.requestId } : {}),
-    },
+    ...(turn.error
+      ? {
+          error: {
+            code: turn.error.bffCode ?? turn.error.code ?? 'UNKNOWN',
+            message: turn.error.message ?? turn.text,
+            ...(turn.error.requestId ? { requestId: turn.error.requestId } : {}),
+          },
+        }
+      : { result: turn.text }),
     steps: turn.steps ?? [],
     environment: formatDiagnosticResult(await runDiagnostics()),
   });
@@ -490,13 +495,13 @@ function copyStepDetail(step: { toolName: string; input: unknown; output: unknow
               <el-icon><CopyDocument /></el-icon>
             </el-button>
             <el-button
-              v-if="turn.role === 'error'"
+              v-if="turn.role === 'error' || (turn.role === 'agent' && turn.steps?.length)"
               link
               size="small"
               class="copy-btn"
               @click="copyDiagnosticLog(turn)"
             >
-              复制诊断日志
+              {{ turn.role === 'error' ? '复制诊断日志' : '复制执行日志' }}
             </el-button>
           </div>
           <div v-if="turn.role === 'agent'" class="turn-text markdown-body" v-html="renderMarkdown(turn.text)"></div>
@@ -569,7 +574,7 @@ function copyStepDetail(step: { toolName: string; input: unknown; output: unknow
       <el-input
         v-model="instruction"
         type="textarea"
-        :rows="3"
+        :rows="10"
         resize="none"
         :disabled="isBusy"
         placeholder="用一句话描述你想做什么，例如：在搜索框输入 Vue3 并搜索"

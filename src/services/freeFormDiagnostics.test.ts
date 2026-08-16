@@ -59,4 +59,19 @@ describe('formatFreeFormDiagnostic', () => {
     expect(text).toContain('无法序列化');
     expect(text).toContain('=== 日志结束 ===');
   });
+
+  it('无 error 时渲染结果段而非错误段', () => {
+    const text = formatFreeFormDiagnostic({
+      sessionId: base.sessionId,
+      timestamp: base.timestamp,
+      extensionVersion: base.extensionVersion,
+      url: base.url,
+      result: '已为 3 位候选人发送打招呼',
+      steps: [{ step: 1, toolName: 'browser_click', input: { ref: 5 }, output: { ok: true }, allowed: true }],
+    });
+    expect(text).toContain('--- 结果 ---');
+    expect(text).toContain('已为 3 位候选人发送打招呼');
+    expect(text).not.toContain('--- 错误 ---');
+    expect(text).toContain('[1] browser_click');
+  });
 });

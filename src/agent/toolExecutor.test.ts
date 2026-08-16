@@ -136,17 +136,17 @@ describe('输入校验', () => {
     expect(sent).toHaveLength(0);
   });
 
-  it('定位时 role 不受支持则拒绝执行', async () => {
+  it('定位缺少 ref 或 selector 时返回 found:false（不发送消息）', async () => {
     const { sent, send } = recordingSender();
-    const result = await executeTool('browser_locate_element', { role: 'somethingElse' }, { tabId: 1, send });
-    expect(result).toMatchObject({ code: 'TOOL_INPUT_INVALID' });
+    const result = await executeTool('browser_locate_element', {}, { tabId: 1, send });
+    expect(result).toMatchObject({ found: false });
     expect(sent).toHaveLength(0);
   });
 
-  it('定位既无 ref 也无 selector 与 role 时拒绝执行', async () => {
+  it('定位传入未知字段（如旧版 role）时同样返回 found:false', async () => {
     const { sent, send } = recordingSender();
-    const result = await executeTool('browser_locate_element', {}, { tabId: 1, send });
-    expect(result).toMatchObject({ code: 'TOOL_INPUT_INVALID' });
+    const result = await executeTool('browser_locate_element', { role: 'somethingElse' }, { tabId: 1, send });
+    expect(result).toMatchObject({ found: false });
     expect(sent).toHaveLength(0);
   });
 
@@ -160,6 +160,27 @@ describe('输入校验', () => {
   it('滚动缺少 deltaY 时拒绝执行', async () => {
     const { send } = recordingSender();
     expect(await executeTool('browser_scroll', {}, { tabId: 1, send })).toMatchObject({ code: 'TOOL_INPUT_INVALID' });
+  });
+
+  it('wait_for 入参非法时返回 satisfied:false（符合 output schema）', async () => {
+    const { send } = recordingSender();
+    const result = await executeTool('browser_wait_for', { condition: 'bad' }, { tabId: 1, send });
+    expect(result).toMatchObject({ satisfied: false, condition: 'bad' });
+    expect(result).not.toHaveProperty('code');
+  });
+
+  it('wait_for 消息发送失败时返回 satisfied:false 而非 ok:false', async () => {
+    const send = () => Promise.reject(new Error('UNKNOWN_MESSAGE_TYPE: boom'));
+    const result = await executeTool('browser_wait_for', { condition: 'stable' }, { tabId: 1, send });
+    expect(result).toMatchObject({ satisfied: false, condition: 'stable', observed: expect.stringContaining('UNKNOWN_MESSAGE_TYPE') });
+    expect(result).not.toHaveProperty('code');
+  });
+
+  it('verify 消息发送失败时返回 passed:false 而非 ok:false', async () => {
+    const send = () => Promise.reject(new Error('NO_DEBUG_SESSION'));
+    const result = await executeTool('browser_verify', { expectDialog: '.modal' }, { tabId: 1, send });
+    expect(result).toMatchObject({ passed: false, dimensions: [] });
+    expect(result).not.toHaveProperty('code');
   });
 });
 

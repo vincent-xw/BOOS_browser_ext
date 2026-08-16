@@ -231,7 +231,7 @@ export async function executeTool(
       case 'browser_locate_element': {
         // ref 与 selector 至少给一个。
         if (input.ref === undefined && input.selector === undefined) {
-          return invalid('定位需要 ref 或 selector。建议先调用 browser_snapshot 取 ref。');
+          return { found: false, message: '定位需要 ref 或 selector。建议先调用 browser_snapshot 取 ref。' };
         }
         return await send<LocateResult>({
           type: MessageType.ContentLocate,
@@ -273,8 +273,19 @@ export async function executeTool(
 
       case 'browser_wait_for': {
         const request = normalizeWaitFor(input);
-        if (!request.ok) return request;
-        return await send({ type: MessageType.ContentWaitFor, tabId, request: request.value });
+        if (!request.ok) {
+          return { satisfied: false, waitedMs: 0, condition: String(input.condition ?? 'unknown'), observed: request.message };
+        }
+        try {
+          return await send({ type: MessageType.ContentWaitFor, tabId, request: request.value });
+        } catch (error) {
+          return {
+            satisfied: false,
+            waitedMs: 0,
+            condition: request.value.condition,
+            observed: error instanceof Error ? error.message : String(error),
+          };
+        }
       }
 
       case 'browser_input_text': {
@@ -321,18 +332,36 @@ export async function executeTool(
       }
 
       case 'browser_verify':
-        return await runVerification(input as VerifyRequest, options);
+        try {
+          return await runVerification(input as VerifyRequest, options);
+        } catch (error) {
+          return {
+            passed: false,
+            dimensions: [],
+            message: error instanceof Error ? error.message : String(error),
+          };
+        }
 
       case 'browser_go_back':
         // 浏览器原生返回。用于点击链接触发非预期导航后回到原页面。
         return await send({ type: MessageType.CdpGoBack, tabId });
 
       case 'browser_screenshot': {
-        const shot = await send<{ dataUrl: string; width: number; height: number }>({
-          type: MessageType.CdpScreenshot,
-          tabId,
-          ...(input.format === 'jpeg' || input.format === 'png' ? { format: input.format } : {}),
-        });
+        let shot: { dataUrl: string; width: number; height: number };
+        try {
+          shot = await send<{ dataUrl: string; width: number; height: number }>({
+            type: MessageType.CdpScreenshot,
+            tabId,
+            ...(input.format === 'jpeg' || input.format === 'png' ? { format: input.format } : {}),
+          });
+        } catch (error) {
+          return {
+            width: 0,
+            height: 0,
+            persisted: false,
+            message: error instanceof Error ? error.message : String(error),
+          };
+        }
         // 只有用户明确要求截图时才落盘、进附件列表。截图不回传给模型，模型自己截了
         // 既看不见也不会下载，纯粹污染列表与存储。
         if (!expressesScreenshotIntent(options.userInstruction)) {

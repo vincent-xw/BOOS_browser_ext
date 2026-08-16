@@ -19,12 +19,15 @@ export interface FreeFormDiagnosticInput {
   extensionVersion: string;
   /** 出错时的页面地址，可能取不到。 */
   url?: string;
-  error: {
+  /** 错误信息。省略时按「执行结果」渲染（用于成功但需要复盘步骤的轮次）。 */
+  error?: {
     code: string;
     message: string;
     /** BFF 侧日志的关联键，只有 BffError 才有。 */
     requestId?: string;
   };
+  /** 轮次的最终输出文本（agent 回复）。无错误时用于结果段。 */
+  result?: string;
   steps: readonly StepEvent[];
   /** 环境探针文本，直接取 formatDiagnosticResult() 的结果。 */
   environment?: string;
@@ -68,10 +71,15 @@ export function formatFreeFormDiagnostic(input: FreeFormDiagnosticInput): string
   if (input.url) lines.push(`页面：${input.url}`);
 
   lines.push('');
-  lines.push('--- 错误 ---');
-  lines.push(`code: ${input.error.code}`);
-  if (input.error.requestId) lines.push(`requestId: ${input.error.requestId}`);
-  lines.push(`message: ${input.error.message}`);
+  if (input.error) {
+    lines.push('--- 错误 ---');
+    lines.push(`code: ${input.error.code}`);
+    if (input.error.requestId) lines.push(`requestId: ${input.error.requestId}`);
+    lines.push(`message: ${input.error.message}`);
+  } else {
+    lines.push('--- 结果 ---');
+    lines.push(input.result ? input.result.slice(0, 2000) : '(无文本输出)');
+  }
 
   if (input.environment) {
     lines.push('');
@@ -82,7 +90,7 @@ export function formatFreeFormDiagnostic(input: FreeFormDiagnosticInput): string
   lines.push('');
   lines.push(`--- 步骤（${input.steps.length}）---`);
   if (input.steps.length === 0) {
-    lines.push('(无已执行步骤，失败发生在第一步之前)');
+    lines.push(input.error ? '(无已执行步骤，失败发生在第一步之前)' : '(无执行步骤)');
   }
   for (const step of input.steps) {
     lines.push(`[${step.step}] ${step.toolName}  ${describeStepFlags(step)}`);
