@@ -18,7 +18,6 @@ export interface OperationError {
     | 'VERIFICATION_FAILED'
     | 'CONTENT_UNAVAILABLE'
     | 'HOST_PERMISSION_MISSING'
-    | 'URL_NOT_ALLOWED'
     | 'TOOL_NOT_ALLOWED'
     | 'TOOL_INPUT_INVALID'
     | 'TOOL_EXECUTION_FAILED';
