@@ -22,13 +22,19 @@ export function createWsExecutorClient(config: WsConfig) {
       wsUrl.searchParams.set('token', config.apiToken)
       ws = new WebSocket(wsUrl.toString())
 
-      ws.onopen = () => {
+      ws.onopen = async () => {
         reconnectAttempt = 0
         // 注册执行器能力，带上当前标签页信息
-        const tabUrl = currentTabId ? chrome.tabs.get(currentTabId).then(t => t?.url).catch(() => undefined) : undefined
-        Promise.resolve(tabUrl).then(url => {
-          ws?.send(JSON.stringify({ type: 'register', tabUrl: url, tabTitle: currentTabId ? chrome.tabs.get(currentTabId).then(t => t?.title).catch(() => undefined) : undefined }))
-        })
+        let tabUrl: string | undefined
+        let tabTitle: string | undefined
+        if (currentTabId !== null) {
+          try {
+            const tab = await chrome.tabs.get(currentTabId)
+            tabUrl = tab.url
+            tabTitle = tab.title
+          } catch { /* tab may have closed */ }
+        }
+        ws?.send(JSON.stringify({ type: 'register', tabUrl, tabTitle }))
       }
 
       ws.onmessage = async (event) => {

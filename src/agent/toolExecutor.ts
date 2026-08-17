@@ -333,25 +333,12 @@ export async function executeTool(
           tabId,
           ...(input.format === 'jpeg' || input.format === 'png' ? { format: input.format } : {}),
         });
-        // 只有用户明确要求截图时才落盘、进附件列表。截图不回传给模型，模型自己截了
-        // 既看不见也不会下载，纯粹污染列表与存储。
-        if (!expressesScreenshotIntent(options.userInstruction)) {
-          return {
-            width: shot.width,
-            height: shot.height,
-            persisted: false,
-            message: `已截图（${shot.width}x${shot.height}），但未保存：截图不会返回给你，你看不到内容，只有用户明确要求时才保存。不要用它排查页面状态，请改用 browser_snapshot。`,
-          };
-        }
-        const { generateScreenshot } = await import('../services/exportService');
-        const format = (input.format === 'jpeg' ? 'jpeg' : 'png') as 'png' | 'jpeg';
-        const screenshot = generateScreenshot(shot.dataUrl, format, shot.width, shot.height);
+        // 返回 dataUrl 给 BFF，BFF 负责存盘
         return {
+          dataUrl: shot.dataUrl,
           width: shot.width,
           height: shot.height,
-          screenshotId: screenshot.id,
-          persisted: true,
-          message: `截图已保存（${shot.width}x${shot.height}），用户可在对话区域查看和下载。`,
+          message: `截图完成（${shot.width}x${shot.height}）`,
         };
       }
 
