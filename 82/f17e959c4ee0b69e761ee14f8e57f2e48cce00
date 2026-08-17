@@ -1,0 +1,27 @@
+src/agent/wsExecutorClient.ts
+  s_88704e7afb3157::t_de4cc6c36f91fa 28-31
+  s_88704e7afb3157::t_68a42eaaa5d3b3 38-46,48-49
+  s_88704e7afb3157::t_a7831817e16367 35,37
+  s_88704e7afb3157::t_5aefc6cb16d390 52-57
+  s_88704e7afb3157::t_5f2f610b22ac2c 1-27,32-34,36,47,50-51,58-98
+entrypoints/background.ts
+  s_88704e7afb3157::t_630e7d75f90e83 105,117,128,163,175,187
+  s_88704e7afb3157::t_c6a5ff61653ca3 12-13,18-34
+  s_88704e7afb3157::t_59c6c2950a4de4 35
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "82f17e959c4ee0b69e761ee14f8e57f2e48cce00",
+  "prompts": {},
+  "sessions": {
+    "s_88704e7afb3157": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "af19520e-9d86-4d86-8809-4dc81e141b84",
+        "model": "auto"
+      },
+      "human_author": "xuewen.jia <xuewen.jia@ly.com>"
+    }
+  }
+}
