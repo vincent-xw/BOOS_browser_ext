@@ -8,12 +8,30 @@ import { mergeTriedSelectors, pickBestOutcome, scoreLocateResult, scorePageSnaps
 import type { FrameOutcome } from '../src/services/frameAggregator';
 import { mergeFrameSnapshots } from '../src/services/refIndex';
 import type { RefOwner } from '../src/services/refIndex';
-import { ALLOWLIST_STORAGE_KEY, isUrlAllowed } from '../src/services/urlAllowlist';
-import type { UrlAllowRule } from '../src/services/urlAllowlist';
 import { detectUrlChange } from '../src/services/navigationDetector';
+import { createWsExecutorClient } from '../src/agent/wsExecutorClient';
+import { settingsService } from '../src/services/settingsService';
 
 export default defineBackground(() => {
   const cdp = createCdpSessionManager();
+
+  // 初始化 WS 执行器客户端
+  const settings = settingsService.load().normalized;
+  const wsClient = createWsExecutorClient({
+    url: settings.advanced.bffBaseUrl || 'http://localhost:8787',
+    apiToken: settings.advanced.bffApiToken || 'dev-token',
+  });
+  wsClient.connect();
+
+  // 监听标签页切换，更新当前 tabId
+  chrome.tabs.onActivated.addListener((activeInfo) => {
+    wsClient.setTabId(activeInfo.tabId);
+  });
+
+  // 初始化时设置当前 tab
+  chrome.tabs.query({ active: true, currentWindow: true }).then((tabs) => {
+    if (tabs[0]?.id) wsClient.setTabId(tabs[0].id);
+  });
 
   /**
    * 全局 ref → 所属 frame 的索引。
@@ -84,7 +102,7 @@ export default defineBackground(() => {
     [MessageType.CdpSessionState]: async () => cdp.state(),
 
     [MessageType.CdpClick]: async (message) => {
-      await requireWritable(message.tabId);
+      await requireSession(message.tabId);
       const beforeUrl = await currentTabUrl(message.tabId);
       await cdp.click(message.x, message.y);
       const navigation = await detectNavigation(message.tabId, beforeUrl);
@@ -96,7 +114,7 @@ export default defineBackground(() => {
     },
 
     [MessageType.CdpHover]: async (message) => {
-      await requireWritable(message.tabId);
+      await requireSession(message.tabId);
       await cdp.hover(message.x, message.y);
       // 悬停后等浮层渲染：不等的话紧随其后的快照会拍到菜单出现之前的状态。
       await new Promise((resolve) => setTimeout(resolve, message.settleMs ?? 300));
@@ -107,7 +125,7 @@ export default defineBackground(() => {
     },
 
     [MessageType.CdpInputText]: async (message) => {
-      await requireWritable(message.tabId);
+      await requireSession(message.tabId);
       const beforeUrl = await currentTabUrl(message.tabId);
       // 先点击建立真实焦点，再 insertText。不改 value —— 那会绕过输入法与框架的受控更新路径。
       await cdp.click(message.x, message.y);
@@ -142,7 +160,7 @@ export default defineBackground(() => {
     },
 
     [MessageType.CdpPressKey]: async (message) => {
-      await requireWritable(message.tabId);
+      await requireSession(message.tabId);
       const beforeUrl = await currentTabUrl(message.tabId);
       await cdp.pressKey(message.key, message.modifiers ?? []);
       const navigation = await detectNavigation(message.tabId, beforeUrl);
@@ -154,7 +172,7 @@ export default defineBackground(() => {
     },
 
     [MessageType.CdpScroll]: async (message) => {
-      await requireWritable(message.tabId);
+      await requireSession(message.tabId);
       const anchor = typeof message.x === 'number' && typeof message.y === 'number' ? { x: message.x, y: message.y } : undefined;
       await cdp.scroll(message.deltaY, anchor);
       return { ok: true, message: `已滚动 ${message.deltaY}px。所有既有坐标已失效，请重新定位。` };
@@ -166,7 +184,7 @@ export default defineBackground(() => {
     },
 
     [MessageType.CdpGoBack]: async (message) => {
-      await requireWritable(message.tabId);
+      await requireSession(message.tabId);
       const beforeUrl = await currentTabUrl(message.tabId);
       try {
         await chrome.tabs.goBack(message.tabId);
@@ -320,22 +338,6 @@ export default defineBackground(() => {
   }
 
   /**
-   * 写操作前校验目标页面是否在白名单内。
-   *
-   * 校验点必须在 Service Worker：放在 UI 侧的话，绕过 UI 直接 sendMessage 就失效了。
-   * 白名单从 chrome.storage.local 读，与设置界面共享同一份数据。
-   */
-  async function requireAllowedUrl(tabId: number): Promise<void> {
-    const tab = await chrome.tabs.get(tabId).catch(() => undefined);
-    const url = tab?.url ?? '';
-    const rules = await loadAllowRules();
-    const check = isUrlAllowed(url, rules);
-    if (!check.allowed) {
-      throw new RoutedError('URL_NOT_ALLOWED', `该页面不允许执行写操作：${check.reason}`, url);
-    }
-  }
-
-  /**
    * 检测写操作后是否发生了页面导航。
    *
    * 等 URL 稳定后用纯函数比对，结果作为强信号注入工具返回值。
@@ -346,23 +348,6 @@ export default defineBackground(() => {
     await new Promise((resolve) => setTimeout(resolve, 350));
     const tab = await chrome.tabs.get(tabId).catch(() => undefined);
     return detectUrlChange(beforeUrl, tab?.url);
-  }
-
-  /** 读取白名单规则。存储不可用或格式不对时返回空数组（即拒绝一切写操作）。 */
-  async function loadAllowRules(): Promise<UrlAllowRule[]> {
-    try {
-      const stored = await chrome.storage.local.get(ALLOWLIST_STORAGE_KEY);
-      const value = stored[ALLOWLIST_STORAGE_KEY];
-      return Array.isArray(value) ? (value as UrlAllowRule[]) : [];
-    } catch {
-      return [];
-    }
-  }
-
-  /** 写操作的公共前置：会话可用 + 页面在白名单内。 */
-  async function requireWritable(tabId: number): Promise<void> {
-    await requireSession(tabId);
-    await requireAllowedUrl(tabId);
   }
 
   /**
