@@ -1,0 +1,23 @@
+src/agent/toolExecutor.ts
+  s_88704e7afb3157::t_bf18970a7abe59 336,338,341
+src/agent/wsExecutorClient.ts
+  s_88704e7afb3157::t_84796ba761ea61 25,28-37
+src/agent/toolExecutor.test.ts
+  s_88704e7afb3157::t_b4ace885357107 308,321,324
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "d1e526decf6c3753c15b67d6a716df4c047dd984",
+  "prompts": {},
+  "sessions": {
+    "s_88704e7afb3157": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "af19520e-9d86-4d86-8809-4dc81e141b84",
+        "model": "auto"
+      },
+      "human_author": "xuewen.jia <xuewen.jia@ly.com>"
+    }
+  }
+}
