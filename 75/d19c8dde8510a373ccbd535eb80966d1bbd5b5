@@ -1,0 +1,19 @@
+.claude/launch.json
+  s_04825501b8227d::t_e121556bd13d29 9-13
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "75d19c8dde8510a373ccbd535eb80966d1bbd5b5",
+  "prompts": {},
+  "sessions": {
+    "s_04825501b8227d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b5655fb1-3d98-4554-89d3-4509741b4be6",
+        "model": "deepseek-v4-flash"
+      },
+      "human_author": "xuewen.jia <xuewen.jia@ly.com>"
+    }
+  }
+}
