@@ -6,6 +6,11 @@
       "runtimeExecutable": "python3",
       "runtimeArgs": ["-m", "http.server", "8913", "--directory", "/tmp/cleartest"],
       "port": 8913
+    },
+    {
+      "name": "bff",
+      "url": "http://localhost:8787",
+      "port": 8787
     }
   ]
 }
