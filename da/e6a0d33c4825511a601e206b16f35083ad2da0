@@ -1,0 +1,24 @@
+src/composables/useFreeFormController.ts
+  s_88704e7afb3157::t_54fa20cd68f512 3
+  s_88704e7afb3157::t_99f2682e9babbc 451
+  s_88704e7afb3157::t_517f74ed01f8c3 102-164
+  s_88704e7afb3157::t_ce2de5f553e275 328,338-345,347-353,355-359,364-367
+  s_88704e7afb3157::t_5af1278d32af7b 100-101
+  s_88704e7afb3157::t_6689257d2dc351 479
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "dae6a0d33c4825511a601e206b16f35083ad2da0",
+  "prompts": {},
+  "sessions": {
+    "s_88704e7afb3157": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "af19520e-9d86-4d86-8809-4dc81e141b84",
+        "model": "auto"
+      },
+      "human_author": "xuewen.jia <xuewen.jia@ly.com>"
+    }
+  }
+}
