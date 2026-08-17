@@ -13,17 +13,12 @@
   },
   "dependencies": {
     "@agent-kit/core": "file:../agent-kit/packages/core",
-    "@element-plus/icons-vue": "^2.3.2",
-    "dompurify": "^3.4.13",
-    "element-plus": "^2.13.7",
-    "marked": "^18.0.9",
     "vue": "^3.5.33",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/chrome": "^0.1.40",
     "@wxt-dev/module-vue": "^1.0.3",
-    "sass": "^1.99.0",
     "typescript": "^6.0.3",
     "vitest": "3.2.4",
     "vue-tsc": "^3.2.7",
