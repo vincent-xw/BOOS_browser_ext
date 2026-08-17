@@ -1,7 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { deleteSkill, extractSkill, loadSkills, renameSkill, saveSkillFromTurns } from './skillStore';
-import type { ConversationTurn } from './freeFormSessionStore';
+
+interface ConversationTurn {
+  role: 'user' | 'agent' | 'error';
+  text: string;
+  timestamp: string;
+  steps?: unknown[];
+  error?: unknown;
+}
 
 function stubStorage() {
   const store = new Map<string, unknown>();

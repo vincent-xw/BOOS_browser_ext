@@ -1,5 +1,3 @@
-import type { ConversationTurn } from './freeFormSessionStore';
-
 /**
  * 技能存储。
  *
@@ -16,6 +14,15 @@ export interface Skill {
   /** agent 最终回复的摘要，让用户记得这个技能干了什么。 */
   finalReplySummary: string;
   createdAt: string;
+}
+
+/** 对话轮次（技能提取用，从 freeFormSessionStore 内联）。 */
+interface ConversationTurn {
+  role: 'user' | 'agent' | 'error';
+  text: string;
+  timestamp: string;
+  steps?: unknown[];
+  error?: unknown;
 }
 
 const STORAGE_KEY = 'boos.skills';
