@@ -1,0 +1,23 @@
+src/services/permissionService.ts
+  s_88704e7afb3157::t_34fb4424ad3ffa 2,4,40-43,49,61-62,72-74,80,87,89
+src/agent/agentClient.ts
+  s_88704e7afb3157::t_26001246f402d4 149
+src/services/settingsService.test.ts
+  s_88704e7afb3157::t_3af9fb36c4aa79 122
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "f3f866709dd84716320609e2cf5de3422d255699",
+  "prompts": {},
+  "sessions": {
+    "s_88704e7afb3157": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "af19520e-9d86-4d86-8809-4dc81e141b84",
+        "model": "auto"
+      },
+      "human_author": "xuewen.jia <xuewen.jia@ly.com>"
+    }
+  }
+}
