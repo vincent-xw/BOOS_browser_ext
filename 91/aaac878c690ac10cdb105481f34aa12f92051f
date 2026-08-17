@@ -1,0 +1,29 @@
+src/services/skillStore.test.ts
+  s_88704e7afb3157::t_1899d192a8a796 4-11
+src/services/skillStore.ts
+  s_88704e7afb3157::t_0664555b02a322 19-27
+docs/superpowers/plans/2026-08-17-browser-ext-rearchitecture-plan.md
+  s_88704e7afb3157::t_966c13d20ab694 1-1282
+docs/superpowers/specs/2026-08-17-browser-ext-rearchitecture-design.md
+  s_88704e7afb3157::t_ab711c19bf4556 171
+  s_88704e7afb3157::t_dad08b9005806e 1-132,134-170,172-189
+  s_88704e7afb3157::t_6046bb878dc9bc 133
+entrypoints/sidepanel/App.vue
+  s_88704e7afb3157::t_09c8f2d42d1b34 2,5-8,10-14,17-20,22-33,36,40-55,58,62,65-67,69-94,97-98,100-105,107-121,123-133,135
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "91aaac878c690ac10cdb105481f34aa12f92051f",
+  "prompts": {},
+  "sessions": {
+    "s_88704e7afb3157": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "af19520e-9d86-4d86-8809-4dc81e141b84",
+        "model": "auto"
+      },
+      "human_author": "xuewen.jia <xuewen.jia@ly.com>"
+    }
+  }
+}
