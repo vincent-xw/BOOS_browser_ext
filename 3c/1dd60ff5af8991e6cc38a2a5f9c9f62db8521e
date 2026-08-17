@@ -1,0 +1,23 @@
+wxt.config.ts
+  s_88704e7afb3157::t_3209480c57fb1f 13-14,28-32
+entrypoints/sidepanel/main.ts
+  s_88704e7afb3157::t_79a21d6d4c7eb3 5
+pnpm-lock.yaml
+  s_88704e7afb3157::t_2e7b5f6003175b 285,325,332,339,346,353,360,431,438,445,452,459,466,531,537,543,549,555,561,567,573,579,585,591,597,603,1448,1455,1462,1469
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "3c1dd60ff5af8991e6cc38a2a5f9c9f62db8521e",
+  "prompts": {},
+  "sessions": {
+    "s_88704e7afb3157": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "af19520e-9d86-4d86-8809-4dc81e141b84",
+        "model": "auto"
+      },
+      "human_author": "xuewen.jia <xuewen.jia@ly.com>"
+    }
+  }
+}
