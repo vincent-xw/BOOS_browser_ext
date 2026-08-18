@@ -111,6 +111,7 @@ export function useFreeFormController() {
   // SSE 客户端：BFF 通过事件流推送 tool_call/final/error。
   const sse = createSseClient();
   const llmStatus = ref('');
+  const currentToolName = ref('');
   let currentTabId = -1;
   let currentInstruction = '';
 
@@ -163,6 +164,7 @@ export function useFreeFormController() {
     appendTurn('agent', formatOutput(event.output), currentSteps.value);
     runState.value = 'succeeded';
     llmStatus.value = '';
+    currentToolName.value = '';
     void cdpActionService.detach();
     void generateSessionTitle();
   });
@@ -173,6 +175,7 @@ export function useFreeFormController() {
     runError.value = { code: 'EXECUTION_FAILED', message: event.message };
     appendTurn('error', event.message, currentSteps.value, runError.value);
     llmStatus.value = '';
+    currentToolName.value = '';
     void cdpActionService.detach();
   });
 
@@ -184,6 +187,7 @@ export function useFreeFormController() {
   async function handleToolCall(callId: string, toolName: string, rawInput: unknown): Promise<void> {
     const step = currentSteps.value.length + 1;
     const allowed = isAllowedTool(toolName);
+    currentToolName.value = toolName;
 
     let output: unknown;
     let denied = false;
@@ -214,6 +218,7 @@ export function useFreeFormController() {
       allowed,
       ...(denied ? { denied } : {}),
     }];
+    currentToolName.value = '';
 
     try {
       await submitToolResult(toBffConfig(settings.value), callId, sessionId.value, output);
@@ -404,6 +409,7 @@ export function useFreeFormController() {
     runState.value = 'running';
     runError.value = null;
     llmStatus.value = '';
+    currentToolName.value = '';
     abortController = new AbortController();
 
     // 写操作需要调试会话。读操作也一并建立，省得中途再要权限。
@@ -528,8 +534,9 @@ export function useFreeFormController() {
   async function stop(): Promise<void> {
     isStopping.value = true;
     abortController?.abort();
-    // 若正卡在审批对话框上，一并按拒绝处理，否则 Promise 永远不会 resolve。
     approvalResolver?.({ approved: false, reason: '任务已被停止。' });
+    llmStatus.value = '';
+    currentToolName.value = '';
     await cdpActionService.detach();
     isStopping.value = false;
   }
@@ -575,6 +582,7 @@ export function useFreeFormController() {
     isBusy,
     canSubmit,
     llmStatus,
+    currentToolName,
     sseStatus: sse.status,
     approve,
     deny,

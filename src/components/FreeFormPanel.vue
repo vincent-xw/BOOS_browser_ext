@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
-import { ArrowDown, Delete, QuestionFilled, Star, CopyDocument, Download, Upload, FolderOpened, Paperclip, Picture, Document } from '@element-plus/icons-vue';
+import { ArrowDown, Delete, QuestionFilled, Star, CopyDocument, Download, Upload, FolderOpened, Paperclip, Picture, Document, Loading } from '@element-plus/icons-vue';
 import { ElMessage } from 'element-plus';
 import { useFreeFormController } from '../composables/useFreeFormController';
 import type { GrantScope } from '../agent/approvalGate';
@@ -52,6 +52,8 @@ const {
   isPlanning,
   isBusy,
   canSubmit,
+  llmStatus,
+  currentToolName,
   approve,
   deny,
   requestPlan,
@@ -534,16 +536,26 @@ function copyStepDetail(step: { toolName: string; input: unknown; output: unknow
       </div>
 
       <!-- 执行中的实时步骤 -->
-      <div v-if="isBusy && currentSteps.length" class="live-steps">
-        <el-text size="small" type="info">正在执行第 {{ currentSteps.length }} 步…</el-text>
-        <div v-for="step in currentSteps.slice(-3)" :key="step.step" class="step-row">
-          <el-tag size="small" effect="plain">{{ step.step }}</el-tag>
-          <el-text size="small">{{ step.toolName }}</el-text>
-          <el-tag size="small" :type="stepSummary(step.output).type" effect="plain">
-            {{ stepSummary(step.output).text }}
-          </el-tag>
-          <el-button :icon="CopyDocument" link size="small" class="step-copy" @click="copyStepDetail(step)" />
+      <div v-if="isBusy" class="live-steps">
+        <div v-if="llmStatus && !currentToolName" class="step-row">
+          <el-icon class="is-loading"><Loading /></el-icon>
+          <el-text size="small" type="info">{{ llmStatus }}</el-text>
         </div>
+        <div v-if="currentToolName" class="step-row">
+          <el-icon class="is-loading"><Loading /></el-icon>
+          <el-text size="small">{{ currentToolName }}…</el-text>
+        </div>
+        <template v-if="currentSteps.length">
+          <el-text size="small" type="info">已完成 {{ currentSteps.length }} 步</el-text>
+          <div v-for="step in currentSteps.slice(-3)" :key="step.step" class="step-row">
+            <el-tag size="small" effect="plain">{{ step.step }}</el-tag>
+            <el-text size="small">{{ step.toolName }}</el-text>
+            <el-tag size="small" :type="stepSummary(step.output).type" effect="plain">
+              {{ stepSummary(step.output).text }}
+            </el-tag>
+            <el-button :icon="CopyDocument" link size="small" class="step-copy" @click="copyStepDetail(step)" />
+          </div>
+        </template>
       </div>
 
       <!-- 已勾选带入上下文的附件 -->
