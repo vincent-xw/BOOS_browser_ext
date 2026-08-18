@@ -525,26 +525,27 @@ function copyStepDetail(step: { toolName: string; input: unknown; output: unknow
           </div>
           <el-collapse v-if="Array.isArray(turn.steps) && turn.steps.length" class="turn-steps">
             <el-collapse-item :title="`执行了 ${turn.steps.length} 步`" :name="index">
-              <div v-for="step in turn.steps" :key="step.step" class="step-row">
-                <el-tag size="small" effect="plain">{{ step.step }}</el-tag>
-                <el-text size="small">{{ step.toolName }}</el-text>
-                <el-tag size="small" :type="stepSummary(step.output).type" effect="plain">
-                  {{ stepSummary(step.output).text }}
-                </el-tag>
-                <el-button :icon="CopyDocument" link size="small" class="step-copy" @click="copyStepDetail(step)" />
-              </div>
+              <el-collapse accordion class="step-inner-collapse">
+                <el-collapse-item
+                  v-for="step in turn.steps"
+                  :key="step.step"
+                  :title="`${step.step}. ${step.toolName} — ${stepSummary(step.output).text}`"
+                  :name="`${index}-${step.step}`"
+                >
+                  <div v-if="step.reasoning" class="step-reasoning">{{ step.reasoning }}</div>
+                  <div class="step-row">
+                    <el-tag size="small" effect="plain">{{ step.step }}</el-tag>
+                    <el-text size="small">{{ step.toolName }}</el-text>
+                    <el-tag size="small" :type="stepSummary(step.output).type" effect="plain">
+                      {{ stepSummary(step.output).text }}
+                    </el-tag>
+                    <el-button :icon="CopyDocument" link size="small" class="step-copy" @click="copyStepDetail(step)" />
+                  </div>
+                </el-collapse-item>
+              </el-collapse>
             </el-collapse-item>
           </el-collapse>
         </div>
-      </div>
-
-      <!-- LLM 流式输出：reasoning 思考过程 -->
-      <div v-if="isBusy && streamingReasoning" class="turn turn-agent streaming-turn">
-        <el-collapse class="turn-steps">
-          <el-collapse-item title="模型思考中…" :name="'streaming-reasoning'">
-            <div class="streaming-reasoning">{{ streamingReasoning }}</div>
-          </el-collapse-item>
-        </el-collapse>
       </div>
 
       <!-- LLM 流式输出：正文逐字出现 -->
@@ -557,24 +558,33 @@ function copyStepDetail(step: { toolName: string; input: unknown; output: unknow
 
       <!-- 执行中的实时步骤 -->
       <div v-if="isBusy" class="live-steps">
-        <div v-if="llmStatus && !currentToolName" class="step-row">
-          <el-icon class="is-loading"><Loading /></el-icon>
-          <el-text size="small" type="info">{{ llmStatus }}</el-text>
+        <div v-if="llmStatus && !currentToolName" class="live-status-block">
+          <div class="step-row">
+            <el-icon class="is-loading"><Loading /></el-icon>
+            <el-text size="small" type="info">{{ llmStatus }}</el-text>
+          </div>
+          <div v-if="streamingReasoning" class="live-reasoning">{{ streamingReasoning }}</div>
         </div>
         <div v-if="currentToolName" class="step-row">
           <el-icon class="is-loading"><Loading /></el-icon>
           <el-text size="small">{{ currentToolName }}…</el-text>
         </div>
         <template v-if="currentSteps.length">
-          <el-text size="small" type="info">已完成 {{ currentSteps.length }} 步</el-text>
-          <div v-for="step in currentSteps.slice(-3)" :key="step.step" class="step-row">
-            <el-tag size="small" effect="plain">{{ step.step }}</el-tag>
-            <el-text size="small">{{ step.toolName }}</el-text>
-            <el-tag size="small" :type="stepSummary(step.output).type" effect="plain">
-              {{ stepSummary(step.output).text }}
-            </el-tag>
-            <el-button :icon="CopyDocument" link size="small" class="step-copy" @click="copyStepDetail(step)" />
-          </div>
+          <el-collapse class="live-steps-collapse">
+            <el-collapse-item :title="`已完成 ${currentSteps.length} 步`" name="live">
+              <div v-for="step in currentSteps" :key="step.step" class="live-step-detail">
+                <div class="step-row">
+                  <el-tag size="small" effect="plain">{{ step.step }}</el-tag>
+                  <el-text size="small">{{ step.toolName }}</el-text>
+                  <el-tag size="small" :type="stepSummary(step.output).type" effect="plain">
+                    {{ stepSummary(step.output).text }}
+                  </el-tag>
+                  <el-button :icon="CopyDocument" link size="small" class="step-copy" @click="copyStepDetail(step)" />
+                </div>
+                <div v-if="step.reasoning" class="step-reasoning">{{ step.reasoning }}</div>
+              </div>
+            </el-collapse-item>
+          </el-collapse>
         </template>
       </div>
 
@@ -1083,20 +1093,47 @@ function copyStepDetail(step: { toolName: string; input: unknown; output: unknow
 .live-steps {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
   padding: 8px 10px;
   background: var(--el-color-info-light-9);
   border-radius: 4px;
   flex-shrink: 0;
 }
 
-.streaming-reasoning {
+.live-status-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.live-reasoning {
   font-size: 12px;
   color: var(--el-text-color-secondary);
   line-height: 1.6;
   white-space: pre-wrap;
-  max-height: 200px;
+  max-height: 120px;
   overflow-y: auto;
+  padding-left: 20px;
+}
+
+.live-step-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.step-reasoning {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  padding: 4px 0 4px 8px;
+  border-left: 2px solid var(--el-border-color);
+  margin: 2px 0;
+}
+
+.step-inner-collapse {
+  margin-left: -8px;
 }
 
 .streaming-cursor::after {

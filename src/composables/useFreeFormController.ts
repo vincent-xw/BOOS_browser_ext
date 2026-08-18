@@ -158,10 +158,11 @@ export function useFreeFormController() {
 
   sse.onToolCall(async (event) => {
     if (event.sessionId !== sessionId.value || runState.value !== 'running') return;
+    const reasoning = streamingReasoning.value;
     streamingContent.value = '';
     streamingReasoning.value = '';
     llmStatus.value = '';
-    await handleToolCall(event.callId, event.toolName, event.input);
+    await handleToolCall(event.callId, event.toolName, event.input, reasoning);
   });
 
   sse.onFinal((event) => {
@@ -205,7 +206,7 @@ export function useFreeFormController() {
     }
   });
 
-  async function handleToolCall(callId: string, toolName: string, rawInput: unknown): Promise<void> {
+  async function handleToolCall(callId: string, toolName: string, rawInput: unknown, reasoning?: string): Promise<void> {
     const step = currentSteps.value.length + 1;
     const allowed = isAllowedTool(toolName);
     currentToolName.value = toolName;
@@ -238,6 +239,7 @@ export function useFreeFormController() {
       output: humanizeStepOutput(output),
       allowed,
       ...(denied ? { denied } : {}),
+      ...(reasoning ? { reasoning } : {}),
     }];
     currentToolName.value = '';
 

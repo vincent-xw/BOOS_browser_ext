@@ -176,4 +176,6 @@ export interface StepEvent {
   allowed: boolean;
   /** 是否被用户拒绝。与 allowed=false（白名单外）区分开。 */
   denied?: boolean;
+  /** 该步执行前模型的思考过程。 */
+  reasoning?: string;
 }
