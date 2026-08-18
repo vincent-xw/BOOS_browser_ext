@@ -1,0 +1,38 @@
+openspec/changes/migrate-ui-to-bff-iframe/design.md
+  s_04825501b8227d::t_14b1c41b06a2d4 1-87
+  s_04825501b8227d::t_eb1196436a5c06 88-90
+openspec/changes/migrate-ui-to-bff-iframe/.openspec.yaml
+  s_04825501b8227d::t_e1f1bce6572c93 1-2
+openspec/changes/migrate-ui-to-bff-iframe/proposal.md
+  s_04825501b8227d::t_2151cd10d702af 1-33
+openspec/changes/migrate-ui-to-bff-iframe/specs/extension-foundation/spec.md
+  s_04825501b8227d::t_c398c386c78849 1-32
+openspec/changes/migrate-ui-to-bff-iframe/specs/chrome-mcp-page-io/spec.md
+  s_04825501b8227d::t_83ad1d47787b26 1-18
+openspec/changes/migrate-ui-to-bff-iframe/tasks.md
+  s_04825501b8227d::t_a8ae179abef137 1-6,14-16,24-26,33-35
+  s_04825501b8227d::t_ef525e49bac6a3 27-32
+  s_04825501b8227d::t_aca9b5f09ff7ab 12
+  s_04825501b8227d::t_83178be00a378b 7-11,13,17-23
+  s_04825501b8227d::t_ab1c1070368df3 36-40
+openspec/changes/migrate-ui-to-bff-iframe/specs/browser-executor-ws/spec.md
+  s_04825501b8227d::t_2d36cfeb416e98 1-32
+openspec/changes/migrate-ui-to-bff-iframe/specs/bff-ui/spec.md
+  s_04825501b8227d::t_75336610381c31 1-62
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "1852c96af1e73be936a4f9b0d9a468d85ae25482",
+  "prompts": {},
+  "sessions": {
+    "s_04825501b8227d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b5655fb1-3d98-4554-89d3-4509741b4be6",
+        "model": "auto"
+      },
+      "human_author": "xuewen.jia <xuewen.jia@ly.com>"
+    }
+  }
+}
