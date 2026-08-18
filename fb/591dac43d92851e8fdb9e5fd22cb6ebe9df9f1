@@ -1,0 +1,32 @@
+src/composables/useFreeFormController.ts
+  s_a2f33b9b07a0c8::t_2c0c0ff37b37f9 114
+  s_a2f33b9b07a0c8::t_93a2052a90e6fb 190
+  s_a2f33b9b07a0c8::t_ea04dc81583fd8 412
+  s_a2f33b9b07a0c8::t_c4b247f6680b54 221
+  s_a2f33b9b07a0c8::t_941014666231f3 167,178
+  s_a2f33b9b07a0c8::t_dbbf9b3a5fd8ca 538-539
+  s_a2f33b9b07a0c8::t_2f6aed300e5c5f 585
+src/components/FreeFormPanel.vue
+  s_a2f33b9b07a0c8::t_60dd0d6f1c58d0 539,541-542,548,550-558
+  s_a2f33b9b07a0c8::t_cf5887dbb99e0c 540,544-546,549
+  s_a2f33b9b07a0c8::t_c8fda66f2fe1f0 3
+  s_a2f33b9b07a0c8::t_e6d586e1422540 55
+  s_a2f33b9b07a0c8::t_3e3370af9cfeea 56
+  s_a2f33b9b07a0c8::t_3d4d17b7d81422 543
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "fb591dac43d92851e8fdb9e5fd22cb6ebe9df9f1",
+  "prompts": {},
+  "sessions": {
+    "s_a2f33b9b07a0c8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5bdf4851-8b2c-4903-b93c-23b83b5edc1a",
+        "model": "auto"
+      },
+      "human_author": "xuewen.jia <xuewen.jia@ly.com>"
+    }
+  }
+}
