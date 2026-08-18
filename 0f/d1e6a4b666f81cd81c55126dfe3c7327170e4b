@@ -1,0 +1,38 @@
+src/composables/useFreeFormController.ts
+  s_a2f33b9b07a0c8::t_3d77fc4d39f4ce 161-163,169-170,181-182
+  s_a2f33b9b07a0c8::t_d48e267b0bd223 196-207
+  s_a2f33b9b07a0c8::t_6170ad4917d2ed 577-578
+  s_a2f33b9b07a0c8::t_fa7fbb053405f0 434-435
+  s_a2f33b9b07a0c8::t_455f94f6df4f74 595-596
+  s_a2f33b9b07a0c8::t_12b73d822c6de7 115-116
+  s_a2f33b9b07a0c8::t_6f22de920f971b 555-556
+  s_a2f33b9b07a0c8::t_f031747d6877ef 631-632
+src/agent/sseClient.ts
+  s_a2f33b9b07a0c8::t_85ec7ed9976a9f 126
+  s_a2f33b9b07a0c8::t_d357de9d5c26c0 106-109
+  s_a2f33b9b07a0c8::t_13f06537f36437 58
+  s_a2f33b9b07a0c8::t_14d6abbd6a1780 38-43,48
+  s_a2f33b9b07a0c8::t_8f7987138d82a4 68
+src/agent/sseClient.test.ts
+  s_a2f33b9b07a0c8::t_27f070023fd2ad 105-115
+src/components/FreeFormPanel.vue
+  s_a2f33b9b07a0c8::t_21eff304e60c98 541-557
+  s_a2f33b9b07a0c8::t_0e69538e6b4377 1093-1112
+  s_a2f33b9b07a0c8::t_c925dffec27102 57-58
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "0fd1e6a4b666f81cd81c55126dfe3c7327170e4b",
+  "prompts": {},
+  "sessions": {
+    "s_a2f33b9b07a0c8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5bdf4851-8b2c-4903-b93c-23b83b5edc1a",
+        "model": "auto"
+      },
+      "human_author": "xuewen.jia <xuewen.jia@ly.com>"
+    }
+  }
+}
