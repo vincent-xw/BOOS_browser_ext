@@ -1,0 +1,16 @@
+entrypoints/sidepanel/main.ts
+  h_c3a612a540ca0b 2
+wxt.config.ts
+  h_c3a612a540ca0b 11-14,21
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "374c6a2cf2f35317c2cc4b4884c9b4d9b21d93e7",
+  "prompts": {},
+  "humans": {
+    "h_c3a612a540ca0b": {
+      "author": "xuewen.jia <xuewen.jia@ly.com>"
+    }
+  }
+}
