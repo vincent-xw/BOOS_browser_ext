@@ -147,7 +147,7 @@ async function handleExport(format: 'txt' | 'csv' | 'xlsx') {
     const role = turn.role === 'user' ? '用户' : turn.role === 'agent' ? 'Agent' : '错误';
     lines.push(`【${role}】`);
     lines.push(turn.text);
-    if (turn.steps?.length) {
+    if (Array.isArray(turn.steps) && turn.steps.length) {
       lines.push(`（执行了 ${turn.steps.length} 步）`);
       for (const step of turn.steps) {
         const summary = stepSummary(step.output);
@@ -211,7 +211,8 @@ function downloadFile(file: GeneratedFile) {
  */
 function turnFiles(turn: ConversationTurn): GeneratedFile[] {
   const ids = new Set<string>();
-  for (const step of turn.steps ?? []) {
+  const steps = Array.isArray(turn.steps) ? turn.steps : [];
+  for (const step of steps) {
     const output = step.output as { fileId?: unknown; screenshotId?: unknown } | null;
     if (typeof output?.fileId === 'string') ids.add(output.fileId);
     if (typeof output?.screenshotId === 'string') ids.add(output.screenshotId);
@@ -338,7 +339,7 @@ async function copyDiagnosticLog(turn: ConversationTurn) {
       message: turn.error?.message ?? turn.text,
       ...(turn.error?.requestId ? { requestId: turn.error.requestId } : {}),
     },
-    steps: turn.steps ?? [],
+    steps: Array.isArray(turn.steps) ? turn.steps : [],
     environment: formatDiagnosticResult(await runDiagnostics()),
   });
   try {
@@ -520,7 +521,7 @@ function copyStepDetail(step: { toolName: string; input: unknown; output: unknow
               <el-button link size="small" @click="downloadFile(file)">下载</el-button>
             </div>
           </div>
-          <el-collapse v-if="turn.steps?.length" class="turn-steps">
+          <el-collapse v-if="Array.isArray(turn.steps) && turn.steps.length" class="turn-steps">
             <el-collapse-item :title="`执行了 ${turn.steps.length} 步`" :name="index">
               <div v-for="step in turn.steps" :key="step.step" class="step-row">
                 <el-tag size="small" effect="plain">{{ step.step }}</el-tag>

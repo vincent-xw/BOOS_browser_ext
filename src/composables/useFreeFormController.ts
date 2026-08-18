@@ -520,7 +520,10 @@ export function useFreeFormController() {
     const target = await getSession(id);
     if (!target) return;
     sessionId.value = target.id;
-    turns.value = [...(Array.isArray(target.turns) ? target.turns : [])];
+    turns.value = (Array.isArray(target.turns) ? target.turns : []).map((turn) => ({
+      ...turn,
+      ...(Array.isArray(turn.steps) ? {} : { steps: [] }),
+    }));
     currentSteps.value = [];
     runState.value = 'idle';
     runError.value = null;
