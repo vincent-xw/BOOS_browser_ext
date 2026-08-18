@@ -1,0 +1,21 @@
+src/agent/sseClient.test.ts
+  s_a2f33b9b07a0c8::t_ba23261a1c9ba4 1-114
+src/agent/sseClient.ts
+  s_a2f33b9b07a0c8::t_7bef8b2d707d98 1-114
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "12aa6ee9f955b5e424e4975ce4886518e95a4661",
+  "prompts": {},
+  "sessions": {
+    "s_a2f33b9b07a0c8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5bdf4851-8b2c-4903-b93c-23b83b5edc1a",
+        "model": "auto"
+      },
+      "human_author": "xuewen.jia <xuewen.jia@ly.com>"
+    }
+  }
+}
