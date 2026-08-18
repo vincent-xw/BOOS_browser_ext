@@ -412,6 +412,9 @@ export function useFreeFormController() {
     currentToolName.value = '';
     abortController = new AbortController();
 
+    // 立即持久化用户轮次，确保会话在任何异步操作前就已入库。
+    void saveSession({ id: sessionId.value, turns: turns.value });
+
     // 写操作需要调试会话。读操作也一并建立，省得中途再要权限。
     const attached = await cdpActionService.attach();
     if (!attached.ok) {
@@ -474,14 +477,15 @@ export function useFreeFormController() {
    * 失败时静默 -- 标题不生成不影响功能，只是列表展示用截断的指令文本。
    */
   async function generateSessionTitle(): Promise<void> {
+    const targetSessionId = sessionId.value;
     try {
-      const existing = sessions.value.find((s) => s.id === sessionId.value);
+      const existing = sessions.value.find((s) => s.id === targetSessionId);
       if (existing?.titleGenerated) return;
 
       const titlePrompt = buildTitlePrompt(turns.value);
       const result = await runAgent(
         toBffConfig(settings.value),
-        sessionId.value,
+        targetSessionId,
         `根据以下对话内容，生成一个10-20字的中文标题，概括这个任务的主题。只输出标题文本，不要标点、不要解释、不要引号。\n\n${titlePrompt}`,
         {},
         'planning',
@@ -491,8 +495,10 @@ export function useFreeFormController() {
       const title = String(result.output).trim().slice(0, 30);
       if (!title) return;
 
-      // 更新会话标题并标记为已生成。
-      await saveSession({ id: sessionId.value, turns: turns.value, title, titleGenerated: true });
+      // 异步期间用户可能已切到别的会话，不要写错会话。
+      if (sessionId.value !== targetSessionId) return;
+
+      await saveSession({ id: targetSessionId, turns: turns.value, title, titleGenerated: true });
       await refreshSessions();
     } catch {
       // 标题生成失败不影响功能。
@@ -514,11 +520,14 @@ export function useFreeFormController() {
     const target = await getSession(id);
     if (!target) return;
     sessionId.value = target.id;
-    turns.value = [...target.turns];
+    turns.value = [...(Array.isArray(target.turns) ? target.turns : [])];
     currentSteps.value = [];
     runState.value = 'idle';
     runError.value = null;
-    // 会话级授权不跨会话沿用：切过去等于换了一个上下文，重新征询更安全。
+    llmStatus.value = '';
+    currentToolName.value = '';
+    pendingPlan.value = null;
+    planReasoning.value = '';
     approvalGate.resetSession();
   }
 
@@ -551,6 +560,10 @@ export function useFreeFormController() {
     currentSteps.value = [];
     runState.value = 'idle';
     runError.value = null;
+    llmStatus.value = '';
+    currentToolName.value = '';
+    pendingPlan.value = null;
+    planReasoning.value = '';
     approvalGate.resetSession();
     void refreshSessions();
   }
