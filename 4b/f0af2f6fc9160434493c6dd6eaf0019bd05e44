@@ -1,0 +1,23 @@
+docs/superpowers/specs/2026-08-18-sse-control-flow-design.md
+  s_a2f33b9b07a0c8::t_5d31ea71747c68 76-77
+  s_a2f33b9b07a0c8::t_8593219a5f87fe 96-97
+  s_a2f33b9b07a0c8::t_538afe20d31853 157-158
+  s_a2f33b9b07a0c8::t_68fc711f4f1246 1-75,78-81,83-95,98-156,159-167
+  s_a2f33b9b07a0c8::t_f57caa320af194 82
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "4bf0af2f6fc9160434493c6dd6eaf0019bd05e44",
+  "prompts": {},
+  "sessions": {
+    "s_a2f33b9b07a0c8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5bdf4851-8b2c-4903-b93c-23b83b5edc1a",
+        "model": "auto"
+      },
+      "human_author": "xuewen.jia <xuewen.jia@ly.com>"
+    }
+  }
+}
