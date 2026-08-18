@@ -74,6 +74,16 @@ const {
 
 const { saveFromTurns } = useSkillController();
 
+/** 执行中展开了 reasoning 的步骤号。 */
+const expandedLiveSteps = ref(new Set<number>());
+
+function toggleLiveStep(step: number) {
+  const next = new Set(expandedLiveSteps.value);
+  if (next.has(step)) next.delete(step);
+  else next.add(step);
+  expandedLiveSteps.value = next;
+}
+
 /** 工具说明面板是否展开。 */
 const toolsHelpVisible = ref(false);
 /** 用户是否已点过「我已了解」。首次需要显式确认，后续仅点击查阅不展示按钮。 */
@@ -570,21 +580,33 @@ function copyStepDetail(step: { toolName: string; input: unknown; output: unknow
           <el-text size="small">{{ currentToolName }}…</el-text>
         </div>
         <template v-if="currentSteps.length">
-          <el-collapse class="live-steps-collapse">
-            <el-collapse-item :title="`已完成 ${currentSteps.length} 步`" name="live">
-              <div v-for="step in currentSteps" :key="step.step" class="live-step-detail">
-                <div class="step-row">
-                  <el-tag size="small" effect="plain">{{ step.step }}</el-tag>
-                  <el-text size="small">{{ step.toolName }}</el-text>
-                  <el-tag size="small" :type="stepSummary(step.output).type" effect="plain">
-                    {{ stepSummary(step.output).text }}
-                  </el-tag>
-                  <el-button :icon="CopyDocument" link size="small" class="step-copy" @click="copyStepDetail(step)" />
-                </div>
-                <div v-if="step.reasoning" class="step-reasoning">{{ step.reasoning }}</div>
-              </div>
-            </el-collapse-item>
-          </el-collapse>
+          <el-text size="small" type="info">已完成 {{ currentSteps.length }} 步</el-text>
+          <div v-for="step in currentSteps" :key="step.step" class="live-step-item">
+            <div
+              class="step-row live-step-row"
+              :class="{ 'clickable': step.reasoning }"
+              @click="step.reasoning && toggleLiveStep(step.step)"
+            >
+              <el-tag size="small" effect="plain">{{ step.step }}</el-tag>
+              <el-text size="small">{{ step.toolName }}</el-text>
+              <el-tag size="small" :type="stepSummary(step.output).type" effect="plain">
+                {{ stepSummary(step.output).text }}
+              </el-tag>
+              <el-button
+                v-if="step.reasoning"
+                link
+                size="small"
+                class="step-expand-btn"
+                @click.stop="toggleLiveStep(step.step)"
+              >
+                <el-icon><ArrowDown /></el-icon>
+              </el-button>
+              <el-button :icon="CopyDocument" link size="small" class="step-copy" @click.stop="copyStepDetail(step)" />
+            </div>
+            <div v-if="step.reasoning && expandedLiveSteps.has(step.step)" class="step-reasoning">
+              {{ step.reasoning }}
+            </div>
+          </div>
         </template>
       </div>
 
@@ -1130,6 +1152,27 @@ function copyStepDetail(step: { toolName: string; input: unknown; output: unknow
   padding: 4px 0 4px 8px;
   border-left: 2px solid var(--el-border-color);
   margin: 2px 0;
+}
+
+.live-step-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.live-step-row.clickable {
+  cursor: pointer;
+  border-radius: 3px;
+  padding: 2px 4px;
+}
+
+.live-step-row.clickable:hover {
+  background: var(--el-fill-color-light);
+}
+
+.step-expand-btn {
+  margin-left: auto;
+  transition: transform 0.2s;
 }
 
 .step-inner-collapse {
