@@ -1,10 +1,11 @@
 import { computed, ref } from 'vue';
 
-import { BffError, runAgent, runAgentSession, toBffConfig } from '../agent/agentClient';
+import { BffError, runAgent, startExecute, submitToolResult, toBffConfig } from '../agent/agentClient';
 import type { StepEvent, TaskPlan } from '../agent/agentClient';
 import { createApprovalGate, summarizeAction } from '../agent/approvalGate';
 import type { ApprovalDecision, ApprovalRequest, GrantScope } from '../agent/approvalGate';
-import { createMessageSender } from '../agent/toolExecutor';
+import { createSseClient } from '../agent/sseClient';
+import { createMessageSender, executeTool, isAllowedTool } from '../agent/toolExecutor';
 import { cdpActionService } from '../services/cdpActionService';
 import { hasUrlPermission, loadAllowRules, requestPermissionForUrl, addAllowRule } from '../services/permissionService';
 import {
@@ -107,6 +108,12 @@ export function useFreeFormController() {
 
   const attachments = useFileAttachments();
 
+  // SSE 客户端：BFF 通过事件流推送 tool_call/final/error。
+  const sse = createSseClient();
+  const llmStatus = ref('');
+  let currentTabId = -1;
+  let currentInstruction = '';
+
   /** 计划阶段的输出。非空时 UI 展示计划等待用户确认。 */
   const pendingPlan = ref<TaskPlan | null>(null);
   /** 计划阶段的 reasoning（模型思考链），供 UI 展示。 */
@@ -142,6 +149,81 @@ export function useFreeFormController() {
   /** UI 调用：用户拒绝。 */
   function deny(): void {
     approvalResolver?.({ approved: false, reason: '用户拒绝了该操作。' });
+  }
+
+  // ── SSE 事件处理 ──────────────────────────────────────
+
+  sse.onToolCall(async (event) => {
+    if (event.sessionId !== sessionId.value || runState.value !== 'running') return;
+    await handleToolCall(event.callId, event.toolName, event.input);
+  });
+
+  sse.onFinal((event) => {
+    if (event.sessionId !== sessionId.value || runState.value !== 'running') return;
+    appendTurn('agent', formatOutput(event.output), currentSteps.value);
+    runState.value = 'succeeded';
+    llmStatus.value = '';
+    void cdpActionService.detach();
+    void generateSessionTitle();
+  });
+
+  sse.onError((event) => {
+    if (event.sessionId && event.sessionId !== sessionId.value) return;
+    runState.value = 'failed';
+    runError.value = { code: 'EXECUTION_FAILED', message: event.message };
+    appendTurn('error', event.message, currentSteps.value, runError.value);
+    llmStatus.value = '';
+    void cdpActionService.detach();
+  });
+
+  sse.onLlmStatus((event) => {
+    if (runState.value !== 'running') return;
+    llmStatus.value = event.type === 'llm_request' ? '思考中…' : '';
+  });
+
+  async function handleToolCall(callId: string, toolName: string, rawInput: unknown): Promise<void> {
+    const step = currentSteps.value.length + 1;
+    const allowed = isAllowedTool(toolName);
+
+    let output: unknown;
+    let denied = false;
+
+    if (!allowed) {
+      output = await executeTool(toolName, rawInput, { tabId: currentTabId, send, userInstruction: currentInstruction });
+    } else if (settings.value.advanced.approvalEnabled) {
+      const decision = await approvalGate.requestPermission(toolName, rawInput, currentUrl.value);
+      if (decision.approved) {
+        output = await executeTool(toolName, rawInput, { tabId: currentTabId, send, userInstruction: currentInstruction });
+      } else {
+        denied = true;
+        output = {
+          ok: false,
+          code: 'USER_DENIED',
+          message: decision.reason ?? '用户拒绝了该操作，动作未执行。请不要尝试绕过，直接说明该步未获批准。',
+        };
+      }
+    } else {
+      output = await executeTool(toolName, rawInput, { tabId: currentTabId, send, userInstruction: currentInstruction });
+    }
+
+    currentSteps.value = [...currentSteps.value, {
+      step,
+      toolName,
+      input: rawInput,
+      output: humanizeStepOutput(output),
+      allowed,
+      ...(denied ? { denied } : {}),
+    }];
+
+    try {
+      await submitToolResult(toBffConfig(settings.value), callId, sessionId.value, output);
+    } catch (error) {
+      runState.value = 'failed';
+      const message = error instanceof BffError ? error.message : error instanceof Error ? error.message : String(error);
+      runError.value = { code: 'EXECUTION_FAILED', message };
+      appendTurn('error', message, currentSteps.value, runError.value);
+      void cdpActionService.detach();
+    }
   }
 
   /** 刷新当前标签页信息与白名单判定，供 UI 展示与提交前校验。 */
@@ -313,12 +395,15 @@ export function useFreeFormController() {
       runError.value = { code: 'ACTIVE_TAB_MISSING', message: '未找到活动标签页。' };
       return;
     }
+    currentTabId = tabId;
+    currentInstruction = text;
 
     turns.value = [...turns.value, { role: 'user', text, timestamp: new Date().toISOString() }];
     instruction.value = '';
     currentSteps.value = [];
     runState.value = 'running';
     runError.value = null;
+    llmStatus.value = '';
     abortController = new AbortController();
 
     // 写操作需要调试会话。读操作也一并建立，省得中途再要权限。
@@ -330,40 +415,24 @@ export function useFreeFormController() {
       return;
     }
 
+    // 确保 SSE 已连接后再启动执行。
+    if (sse.status.value === 'disconnected') {
+      sse.connect(settings.value.advanced.bffBaseUrl, settings.value.advanced.bffApiToken);
+    }
+
     try {
       const fileList = attachments.buildFileList();
       const context: Record<string, unknown> = {};
       if (fileList.length) context.fileList = fileList;
-      // 日期锚点同计划阶段：执行阶段用户可能直接说「选最近一周」，缺了今天的日期一样会算错。
       context.currentDate = buildDateContext();
-      // 执行阶段同样给出页面身份：用户可能跳过计划直接执行，
-      // 缺了它模型只能靠快照猜自己在哪一页。
       if (currentUrl.value) context.currentUrl = currentUrl.value;
       if (currentTitle.value) context.pageTitle = currentTitle.value;
 
-      const result = await runAgentSession(text, {
-        config: toBffConfig(settings.value),
-        sessionId: sessionId.value,
-        tabId,
-        send,
-        ...(settings.value.advanced.approvalEnabled ? { approval: approvalGate } : {}),
-        currentUrl: currentUrl.value,
-        maxSteps: settings.value.advanced.maxSteps,
-        signal: abortController.signal,
-        context,
-        onStep: (event) => {
-          currentSteps.value = [...currentSteps.value, { ...event, output: humanizeStepOutput(event.output) }];
-        },
-      });
-      appendTurn('agent', formatOutput(result.output), currentSteps.value);
-      runState.value = 'succeeded';
-      // agent 回复后异步生成会话标题（不阻塞 UI）。
-      void generateSessionTitle();
+      await startExecute(toBffConfig(settings.value), sessionId.value, text, context);
     } catch (error) {
       const message = error instanceof BffError ? error.message : error instanceof Error ? error.message : String(error);
       const bff = error instanceof BffError ? error : null;
       runState.value = 'failed';
-      // 保留 BFF 原码与 requestId：它们是和服务端日志对上的唯一线索，诊断日志要用。
       runError.value = {
         code: 'EXECUTION_FAILED',
         message,
@@ -371,10 +440,7 @@ export function useFreeFormController() {
         ...(bff?.requestId ? { requestId: bff.requestId } : {}),
       };
       appendTurn('error', message, currentSteps.value, runError.value);
-    } finally {
-      // 任务结束即释放调试连接，调试横幅不该长期挂在页面上。
       await cdpActionService.detach();
-      abortController = null;
     }
   }
 
@@ -482,6 +548,11 @@ export function useFreeFormController() {
     void refreshSessions();
   }
 
+  // 初始化时尝试连接 SSE（设置已配置时）。
+  if (settings.value.advanced.bffBaseUrl && settings.value.advanced.bffApiToken) {
+    sse.connect(settings.value.advanced.bffBaseUrl, settings.value.advanced.bffApiToken);
+  }
+
   return {
     runState,
     runError,
@@ -503,6 +574,8 @@ export function useFreeFormController() {
     isPlanning,
     isBusy,
     canSubmit,
+    llmStatus,
+    sseStatus: sse.status,
     approve,
     deny,
     requestPlan,

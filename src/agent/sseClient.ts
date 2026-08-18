@@ -81,13 +81,13 @@ export function createSseClient(): SseClient {
     es.addEventListener('final', (e) => {
       for (const h of finalHandlers) h(parse<FinalEvent>(e))
     })
-    es.addEventListener('error', (e) => {
+    es.addEventListener('error', ((e: MessageEvent) => {
       // SSE 'error' events from the server carry JSON data;
       // EventSource connection errors have no data.
       if (e.data) {
         for (const h of errorHandlers) h(parse<SseErrorEvent>(e))
       }
-    })
+    }) as EventListener)
 
     for (const type of ['llm_request', 'llm_response', 'llm_error'] as const) {
       es.addEventListener(type, (e) => {
