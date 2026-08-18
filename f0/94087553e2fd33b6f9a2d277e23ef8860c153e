@@ -1,0 +1,26 @@
+src/composables/useFreeFormController.ts
+  s_a2f33b9b07a0c8::t_5c0f4bdac3db3f 3,7-8
+  s_a2f33b9b07a0c8::t_ab743cb76c5847 551-555
+  s_a2f33b9b07a0c8::t_1bb1b072cc7881 154-228
+  s_a2f33b9b07a0c8::t_2051be6a4d506a 398-399,406,418-422,431
+  s_a2f33b9b07a0c8::t_f71ed64cdcf9d2 111-116
+  s_a2f33b9b07a0c8::t_ff884671238195 577-578
+src/agent/sseClient.ts
+  s_a2f33b9b07a0c8::t_8b9624f3ebcb6c 84,90
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "f094087553e2fd33b6f9a2d277e23ef8860c153e",
+  "prompts": {},
+  "sessions": {
+    "s_a2f33b9b07a0c8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5bdf4851-8b2c-4903-b93c-23b83b5edc1a",
+        "model": "auto"
+      },
+      "human_author": "xuewen.jia <xuewen.jia@ly.com>"
+    }
+  }
+}
