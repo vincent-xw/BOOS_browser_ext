@@ -1,0 +1,22 @@
+src/components/FreeFormPanel.vue
+  s_a2f33b9b07a0c8::t_21055aeaaa0d3b 584-588,590-609
+  s_a2f33b9b07a0c8::t_4c95f82e14e6aa 1157-1177
+  s_a2f33b9b07a0c8::t_67778c1719c717 583,589
+  s_a2f33b9b07a0c8::t_13b21e6fd850a4 77-86
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "034981c9345d11c1def54b1018fdfaa0cc52e024",
+  "prompts": {},
+  "sessions": {
+    "s_a2f33b9b07a0c8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5bdf4851-8b2c-4903-b93c-23b83b5edc1a",
+        "model": "auto"
+      },
+      "human_author": "xuewen.jia <xuewen.jia@ly.com>"
+    }
+  }
+}
