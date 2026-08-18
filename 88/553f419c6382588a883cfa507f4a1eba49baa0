@@ -1,0 +1,24 @@
+docs/superpowers/plans/2026-08-18-sse-control-flow.md
+  s_a2f33b9b07a0c8::t_24d1a98403bdf3 1-700,705-1311,1313-1316,1319-1366,1371,1374-1375,1377-1381,1383-1385,1387-1426,1428-1535
+  s_a2f33b9b07a0c8::t_c583b555b2da1b 701-704
+  s_a2f33b9b07a0c8::t_23573d9d98ca7f 1367-1370,1372-1373,1376,1382,1386
+  s_a2f33b9b07a0c8::t_8543f56b49e382 1317-1318
+  s_a2f33b9b07a0c8::t_51f51f82798726 1312
+  s_a2f33b9b07a0c8::t_8ec2966b129e68 1427
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "88553f419c6382588a883cfa507f4a1eba49baa0",
+  "prompts": {},
+  "sessions": {
+    "s_a2f33b9b07a0c8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5bdf4851-8b2c-4903-b93c-23b83b5edc1a",
+        "model": "auto"
+      },
+      "human_author": "xuewen.jia <xuewen.jia@ly.com>"
+    }
+  }
+}
