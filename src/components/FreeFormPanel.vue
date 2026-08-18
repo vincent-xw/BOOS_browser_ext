@@ -54,6 +54,8 @@ const {
   canSubmit,
   llmStatus,
   currentToolName,
+  streamingContent,
+  streamingReasoning,
   approve,
   deny,
   requestPlan,
@@ -534,6 +536,23 @@ function copyStepDetail(step: { toolName: string; input: unknown; output: unknow
             </el-collapse-item>
           </el-collapse>
         </div>
+      </div>
+
+      <!-- LLM 流式输出：reasoning 思考过程 -->
+      <div v-if="isBusy && streamingReasoning" class="turn turn-agent streaming-turn">
+        <el-collapse class="turn-steps">
+          <el-collapse-item title="模型思考中…" :name="'streaming-reasoning'">
+            <div class="streaming-reasoning">{{ streamingReasoning }}</div>
+          </el-collapse-item>
+        </el-collapse>
+      </div>
+
+      <!-- LLM 流式输出：正文逐字出现 -->
+      <div v-if="isBusy && streamingContent" class="turn turn-agent">
+        <div class="turn-header">
+          <el-text size="small" tag="b">Agent</el-text>
+        </div>
+        <div class="turn-text markdown-body streaming-cursor" v-html="renderMarkdown(streamingContent)"></div>
       </div>
 
       <!-- 执行中的实时步骤 -->
@@ -1069,6 +1088,26 @@ function copyStepDetail(step: { toolName: string; input: unknown; output: unknow
   background: var(--el-color-info-light-9);
   border-radius: 4px;
   flex-shrink: 0;
+}
+
+.streaming-reasoning {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.streaming-cursor::after {
+  content: '▊';
+  animation: blink 1s step-start infinite;
+  color: var(--el-color-primary);
+  margin-left: 2px;
+}
+
+@keyframes blink {
+  50% { opacity: 0; }
 }
 
 .plan-card {

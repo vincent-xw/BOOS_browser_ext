@@ -112,6 +112,8 @@ export function useFreeFormController() {
   const sse = createSseClient();
   const llmStatus = ref('');
   const currentToolName = ref('');
+  const streamingContent = ref('');
+  const streamingReasoning = ref('');
   let currentTabId = -1;
   let currentInstruction = '';
 
@@ -156,11 +158,16 @@ export function useFreeFormController() {
 
   sse.onToolCall(async (event) => {
     if (event.sessionId !== sessionId.value || runState.value !== 'running') return;
+    streamingContent.value = '';
+    streamingReasoning.value = '';
+    llmStatus.value = '';
     await handleToolCall(event.callId, event.toolName, event.input);
   });
 
   sse.onFinal((event) => {
     if (event.sessionId !== sessionId.value || runState.value !== 'running') return;
+    streamingContent.value = '';
+    streamingReasoning.value = '';
     appendTurn('agent', formatOutput(event.output), currentSteps.value);
     runState.value = 'succeeded';
     llmStatus.value = '';
@@ -171,6 +178,8 @@ export function useFreeFormController() {
 
   sse.onError((event) => {
     if (event.sessionId && event.sessionId !== sessionId.value) return;
+    streamingContent.value = '';
+    streamingReasoning.value = '';
     runState.value = 'failed';
     runError.value = { code: 'EXECUTION_FAILED', message: event.message };
     appendTurn('error', event.message, currentSteps.value, runError.value);
@@ -182,6 +191,18 @@ export function useFreeFormController() {
   sse.onLlmStatus((event) => {
     if (runState.value !== 'running') return;
     llmStatus.value = event.type === 'llm_request' ? '思考中…' : '';
+  });
+
+  sse.onLlmDelta((event) => {
+    if (runState.value !== 'running') return;
+    if (event.reasoning) {
+      streamingReasoning.value += event.reasoning;
+      llmStatus.value = '';
+    }
+    if (event.content) {
+      streamingContent.value += event.content;
+      llmStatus.value = '';
+    }
   });
 
   async function handleToolCall(callId: string, toolName: string, rawInput: unknown): Promise<void> {
@@ -410,6 +431,8 @@ export function useFreeFormController() {
     runError.value = null;
     llmStatus.value = '';
     currentToolName.value = '';
+    streamingContent.value = '';
+    streamingReasoning.value = '';
     abortController = new AbortController();
 
     // 立即持久化用户轮次，确保会话在任何异步操作前就已入库。
@@ -529,6 +552,8 @@ export function useFreeFormController() {
     runError.value = null;
     llmStatus.value = '';
     currentToolName.value = '';
+    streamingContent.value = '';
+    streamingReasoning.value = '';
     pendingPlan.value = null;
     planReasoning.value = '';
     approvalGate.resetSession();
@@ -549,6 +574,8 @@ export function useFreeFormController() {
     approvalResolver?.({ approved: false, reason: '任务已被停止。' });
     llmStatus.value = '';
     currentToolName.value = '';
+    streamingContent.value = '';
+    streamingReasoning.value = '';
     await cdpActionService.detach();
     isStopping.value = false;
   }
@@ -565,6 +592,8 @@ export function useFreeFormController() {
     runError.value = null;
     llmStatus.value = '';
     currentToolName.value = '';
+    streamingContent.value = '';
+    streamingReasoning.value = '';
     pendingPlan.value = null;
     planReasoning.value = '';
     approvalGate.resetSession();
@@ -599,6 +628,8 @@ export function useFreeFormController() {
     canSubmit,
     llmStatus,
     currentToolName,
+    streamingContent,
+    streamingReasoning,
     sseStatus: sse.status,
     approve,
     deny,

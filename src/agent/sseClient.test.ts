@@ -102,6 +102,17 @@ describe('sseClient', () => {
     expect(received[1]).toMatchObject({ type: 'llm_response' })
   })
 
+  it('dispatches llm_delta events', async () => {
+    const { createSseClient } = await import('./sseClient')
+    const client = createSseClient()
+    const received: string[] = []
+    client.onLlmDelta((e) => received.push(e.content ?? e.reasoning ?? ''))
+    client.connect('http://localhost:8787', 'tok')
+    MockEventSource.instances[0]!.dispatch('llm_delta', { content: 'Hello' })
+    MockEventSource.instances[0]!.dispatch('llm_delta', { content: ' world' })
+    expect(received).toEqual(['Hello', ' world'])
+  })
+
   it('disconnect closes the EventSource', async () => {
     const { createSseClient } = await import('./sseClient')
     const client = createSseClient()

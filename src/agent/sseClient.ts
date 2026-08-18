@@ -35,10 +35,17 @@ export interface LlmStatusEvent {
   error?: string
 }
 
+export interface LlmDeltaEvent {
+  type: 'llm_delta'
+  content?: string
+  reasoning?: string
+}
+
 type ToolCallHandler = (event: ToolCallEvent) => void
 type FinalHandler = (event: FinalEvent) => void
 type ErrorHandler = (event: SseErrorEvent) => void
 type LlmStatusHandler = (event: LlmStatusEvent) => void
+type LlmDeltaHandler = (event: LlmDeltaEvent) => void
 
 export interface SseClient {
   readonly status: ReturnType<typeof ref<ConnectionStatus>>
@@ -48,6 +55,7 @@ export interface SseClient {
   onFinal(handler: FinalHandler): void
   onError(handler: ErrorHandler): void
   onLlmStatus(handler: LlmStatusHandler): void
+  onLlmDelta(handler: LlmDeltaHandler): void
 }
 
 export function createSseClient(): SseClient {
@@ -57,6 +65,7 @@ export function createSseClient(): SseClient {
   const finalHandlers: FinalHandler[] = []
   const errorHandlers: ErrorHandler[] = []
   const llmStatusHandlers: LlmStatusHandler[] = []
+  const llmDeltaHandlers: LlmDeltaHandler[] = []
 
   function parse<T>(e: MessageEvent): T {
     return JSON.parse(e.data as string) as T
@@ -94,6 +103,10 @@ export function createSseClient(): SseClient {
         for (const h of llmStatusHandlers) h({ ...parse<Record<string, unknown>>(e), type } as LlmStatusEvent)
       })
     }
+
+    es.addEventListener('llm_delta', (e) => {
+      for (const h of llmDeltaHandlers) h(parse<LlmDeltaEvent>(e))
+    })
   }
 
   function disconnect(): void {
@@ -110,5 +123,6 @@ export function createSseClient(): SseClient {
     onFinal: (h) => finalHandlers.push(h),
     onError: (h) => errorHandlers.push(h),
     onLlmStatus: (h) => llmStatusHandlers.push(h),
+    onLlmDelta: (h) => llmDeltaHandlers.push(h),
   }
 }
