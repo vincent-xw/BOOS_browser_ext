@@ -1,6 +1,3 @@
-import type { ApprovalGate } from './approvalGate';
-import { executeTool, isAllowedTool } from './toolExecutor';
-import type { MessageSender } from './toolExecutor';
 import type { AppSettings } from '../types/settings';
 
 /**
@@ -121,12 +118,33 @@ export function runAgent(
   });
 }
 
-/** 回填单个工具结果。 */
-export function submitToolResult(config: BffConfig, sessionId: string, callId: string, output: unknown): Promise<AgentRunResult> {
-  return callBff<AgentRunResult>(
+/** 启动 SSE 驱动的执行。立即返回（BFF 返回 202），后续步骤通过 SSE 事件推送。 */
+export async function startExecute(
+  config: BffConfig,
+  sessionId: string,
+  input: string,
+  context: Record<string, unknown> = {},
+  promptName?: string,
+): Promise<void> {
+  await callBff<{ accepted: boolean }>(config, '/api/execute', {
+    sessionId,
+    input,
+    context,
+    ...(promptName ? { promptName } : {}),
+  });
+}
+
+/** 回填单个工具结果。SSE 模式下 BFF 返回 202，后续步骤通过事件推送。 */
+export async function submitToolResult(
+  config: BffConfig,
+  callId: string,
+  sessionId: string,
+  output: unknown,
+): Promise<void> {
+  await callBff<{ accepted: boolean }>(
     config,
-    `/v1/agent/sessions/${encodeURIComponent(sessionId)}/tool-results/${encodeURIComponent(callId)}`,
-    { output },
+    `/api/tool-results/${encodeURIComponent(callId)}`,
+    { sessionId, output },
   );
 }
 
@@ -158,78 +176,4 @@ export interface StepEvent {
   allowed: boolean;
   /** 是否被用户拒绝。与 allowed=false（白名单外）区分开。 */
   denied?: boolean;
-}
-
-export interface AgentSessionOptions {
-  config: BffConfig;
-  sessionId: string;
-  tabId: number;
-  send: MessageSender;
-  /** 最大轮次上限，防止模型陷入循环。 */
-  maxSteps?: number;
-  onStep?: (event: StepEvent) => void;
-  signal?: AbortSignal;
-  /** 指定 BFF 侧的提示词。省略时用 BFF 的默认提示词（free-form）。 */
-  promptName?: string;
-  /** 审批门。提供时写操作需先获批；省略时不做审批（预设流程走这条）。 */
-  approval?: ApprovalGate;
-  /** 当前页面 URL，用于审批展示与域名级授权判定。 */
-  currentUrl?: string;
-  /** 首轮注入的上下文（页面快照、勾选的文件等）。 */
-  context?: Record<string, unknown>;
-}
-
-/**
- * 驱动完整的 agent 闭环。
- *
- * 每收到 pending_tool_calls 就逐个执行并回填 —— 同轮全部回填后 BFF 才推进模型。
- * 白名单外的工具名不执行任何页面动作，直接回填未授权结果。
- * 注入审批门时，写操作需先获得用户批准；被拒绝的动作把拒绝原因回填给模型，
- * 让它知道该动作没有发生，而不是误以为成功。
- */
-export async function runAgentSession(input: string, options: AgentSessionOptions): Promise<{ output: unknown; steps: number }> {
-  const { config, sessionId, tabId, send, onStep, approval } = options;
-  const maxSteps = options.maxSteps ?? 30;
-
-  let result = await runAgent(config, sessionId, input, options.context ?? {}, options.promptName);
-  let step = 0;
-
-  while (result.type === 'pending_tool_calls') {
-    if (options.signal?.aborted) throw new BffError('ABORTED', '任务已被停止。');
-    if (step >= maxSteps) throw new BffError('STEP_LIMIT', `已达最大步数 ${maxSteps}，任务中止以避免无限循环。`);
-
-    let next: AgentRunResult = result;
-    for (const call of result.calls) {
-      if (options.signal?.aborted) throw new BffError('ABORTED', '任务已被停止。');
-      step += 1;
-      const allowed = isAllowedTool(call.toolName);
-
-      let output: unknown;
-      let denied = false;
-      if (!allowed) {
-        output = await executeTool(call.toolName, call.input, { tabId, send, userInstruction: input });
-      } else if (approval) {
-        const decision = await approval.requestPermission(call.toolName, call.input, options.currentUrl ?? '');
-        if (decision.approved) {
-          output = await executeTool(call.toolName, call.input, { tabId, send, userInstruction: input });
-        } else {
-          denied = true;
-          output = {
-            ok: false,
-            code: 'USER_DENIED',
-            message: decision.reason ?? '用户拒绝了该操作，动作未执行。请不要尝试绕过，直接说明该步未获批准。',
-          };
-        }
-      } else {
-        output = await executeTool(call.toolName, call.input, { tabId, send, userInstruction: input });
-      }
-
-      onStep?.({ step, toolName: call.toolName, input: call.input, output, allowed, ...(denied ? { denied } : {}) });
-      // 逐个回填。全部回填完毕后 BFF 才会推进模型并返回下一轮或 final。
-      next = await submitToolResult(config, sessionId, call.callId, output);
-    }
-    result = next;
-  }
-
-  return { output: result.output, steps: step };
 }
