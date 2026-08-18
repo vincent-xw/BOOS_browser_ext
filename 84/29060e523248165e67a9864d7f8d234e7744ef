@@ -1,0 +1,24 @@
+src/components/FreeFormPanel.vue
+  s_a2f33b9b07a0c8::t_02f68d1c0d7825 342
+  s_a2f33b9b07a0c8::t_c62f6173eb2a18 214-215
+  s_a2f33b9b07a0c8::t_f9c1077409b6cf 524
+  s_a2f33b9b07a0c8::t_d839c40d320242 150
+src/composables/useFreeFormController.ts
+  s_a2f33b9b07a0c8::t_1338a6190dea13 523-526
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "8429060e523248165e67a9864d7f8d234e7744ef",
+  "prompts": {},
+  "sessions": {
+    "s_a2f33b9b07a0c8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5bdf4851-8b2c-4903-b93c-23b83b5edc1a",
+        "model": "auto"
+      },
+      "human_author": "xuewen.jia <xuewen.jia@ly.com>"
+    }
+  }
+}
